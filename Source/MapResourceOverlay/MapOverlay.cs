@@ -41,7 +41,7 @@ namespace MapResourceOverlay
         }
         public void Start()
         {
-            Show = true;
+            Show = false;
             gameObject.layer = 10;
             gameObject.AddComponent<MeshRenderer>();
             _mesh = gameObject.AddComponent<MeshFilter>().mesh;
@@ -73,11 +73,11 @@ namespace MapResourceOverlay
                 {
                     _changed = false;
                     var dir = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-                    var radii = System.IO.File.ReadAllLines(dir+"\\Assets\\Radii.cfg");
+                    var radii = System.IO.File.ReadAllLines(dir+"/Assets/Radii.cfg");
                     var radius = float.Parse(radii.First(x => x.StartsWith(targetBody.GetName())).Split('=')[1]);
                     _body = targetBody;
                     evilmesh(targetBody, SelectedResourceName);
-                    gameObject.renderer.material = new Material(System.IO.File.ReadAllText(dir + "\\Assets\\MapOverlayShader.txt"));
+                    gameObject.renderer.material = new Material(System.IO.File.ReadAllText(dir + "/Assets/MapOverlayShader.txt"));
                     gameObject.renderer.enabled = true;
                     gameObject.renderer.castShadows = false;
                     gameObject.transform.parent = ScaledSpace.Instance.scaledSpaceTransforms.FirstOrDefault(t => t.name == _body.name); ;
