@@ -47,14 +47,14 @@ namespace MapResourceOverlay
         public bool Resizable { get; set; }
         public bool HideCloseButton { get; set; }
 
-        protected Window(string windowTitle, float defaultWidth, float defaultHeight)
+        protected Window(string windowTitle, float defaultWidth, float defaultHeight, Rect pos = new Rect())
         {
-            this.WindowTitle = windowTitle;
-            this.windowId = windowTitle.GetHashCode() + new System.Random().Next(65536) + System.Reflection.Assembly.GetExecutingAssembly().GetName().Name.GetHashCode();
+            WindowTitle = windowTitle;
+            windowId = windowTitle.GetHashCode() + new System.Random().Next(65536) + System.Reflection.Assembly.GetExecutingAssembly().GetName().Name.GetHashCode();
 
             configNodeName = windowTitle.Replace(" ", "");
-
-            windowPos = new Rect((Screen.width - defaultWidth) / 2, (Screen.height - defaultHeight) / 2, defaultWidth, defaultHeight);
+            windowPos = pos != new Rect() ? pos : new Rect((Screen.width - defaultWidth) / 2, (Screen.height - defaultHeight) / 2, defaultWidth, defaultHeight);
+            
             mouseDown = false;
             visible = false;
 

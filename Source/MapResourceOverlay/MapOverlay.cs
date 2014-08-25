@@ -10,16 +10,31 @@ using OpenResourceSystem;
 
 namespace MapResourceOverlay
 {
-    [KSPAddon(KSPAddon.Startup.Flight, false)]
+    [KSPAddon(KSPAddon.Startup.Flight, true)]
     public class MapOverlay : MonoBehaviour
     {
         private CelestialBody _body;
         private Mesh _mesh;
-        private readonly List<string> _resources = new List<string> { "Karbonite", "Minerals", "Ore", "Substrate", "Water" };
+
+        private readonly List<string> _resources = new List<string>
+        {
+            "Karbonite",
+            "Minerals",
+            "Ore",
+            "Substrate",
+            "Water"
+        };
+
         private readonly IButton _mapOverlayButton;
         private MapOverlayGui _gui;
         private bool _changed;
         private string _selectedResourceName;
+        private Coordinates _mouseCoords;
+        private CelestialBody targetBody;
+
+        [KSPField(isPersistant = true)] private bool _show;
+
+        private Vector2 mouse;
 
 
         public MapOverlay()
@@ -29,28 +44,49 @@ namespace MapResourceOverlay
             _mapOverlayButton.ToolTip = "Map Resource Overlay";
             _mapOverlayButton.Visibility = new GameScenesVisibility(GameScenes.FLIGHT);
             _mapOverlayButton.OnClick += e => ToggleGui();
+            DontDestroyOnLoad(this);
         }
 
         public void ToggleGui()
         {
+            if (_gui != null)
+            {
+                _gui.SetVisible(false);
+            }
             _gui = new MapOverlayGui(this);
             _gui.SetVisible(true);
         }
+
+        public void OnDestroy()
+        {
+            Debug.Log("destroying MapResourceOverlay");
+            _mapOverlayButton.Destroy();
+            if (_gui != null)
+            {
+                _gui.Model = null;
+                _gui.SetVisible(false);
+            }
+            gameObject.renderer.enabled = false;
+        }
+
         public void Awake()
         {
+            
         }
         public void Start()
         {
-            Show = false;
+            Debug.Log("MapResourceOverlay starting");
             gameObject.layer = 10;
             gameObject.AddComponent<MeshRenderer>();
             _mesh = gameObject.AddComponent<MeshFilter>().mesh;
             SelectedResourceName = Resources[0];
+            var overlays =FindObjectsOfType<MapOverlay>().ToList();
+            Debug.Log("MapResourceOverlay left: "+overlays.Count(x => x != this));
         }
 
         public void Update()
         {
-            if (HighLogic.LoadedScene != GameScenes.FLIGHT && HighLogic.LoadedScene != GameScenes.TRACKSTATION)
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT)
             {
                 gameObject.renderer.enabled = (false);
             }
@@ -63,17 +99,19 @@ namespace MapResourceOverlay
             if (!Show || MapView.MapCamera == null)
             {
                 gameObject.renderer.enabled = false;
+                _mouseCoords = null;
             }
             else
             {
                 gameObject.renderer.enabled = true;
-                var targetBody = GetTargetBody(MapView.MapCamera.target);
+                targetBody = GetTargetBody(MapView.MapCamera.target);
 
-                if (targetBody != null && targetBody != _body || _changed)
+                if (targetBody != null && targetBody != _body || targetBody != null && _changed)
                 {
                     _changed = false;
+                    Debug.Log("new target: " + targetBody.GetName());
                     var dir = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-                    var radii = System.IO.File.ReadAllLines(dir+"/Assets/Radii.cfg");
+                    var radii = System.IO.File.ReadAllLines(dir + "/Assets/Radii.cfg");
                     var radius = float.Parse(radii.First(x => x.StartsWith(targetBody.GetName())).Split('=')[1]);
                     _body = targetBody;
                     evilmesh(targetBody, SelectedResourceName);
@@ -85,9 +123,92 @@ namespace MapResourceOverlay
                     gameObject.transform.localScale = Vector3.one * 1000f * radius;
                     gameObject.transform.localPosition = (Vector3.zero);
                     gameObject.transform.localRotation = (Quaternion.identity);
+
+                }
+
+            }
+
+        }
+
+        public void OnGUI()
+        {
+            if (Show && targetBody != null)
+            {
+                if (Event.current.type == EventType.Layout)
+                {
+                    _mouseCoords = GetMouseCoordinates(targetBody);
+                    mouse = Event.current.mousePosition;
+                }
+                if (_mouseCoords != null)
+                {
+
+                    var id = new System.Random().Next(65536) + Assembly.GetExecutingAssembly().GetName().Name.GetHashCode() + "tooltip".GetHashCode();
+                    var abundance = ORSPlanetaryResourceMapData.getResourceAvailabilityByRealResourceName(
+                        targetBody.flightGlobalsIndex, _selectedResourceName, _mouseCoords.Latitude, _mouseCoords.Longitude)
+                        .getAmount();
+                    string abundanceString;
+                    if (abundance > 0.001)
+                    {
+                        abundanceString = (abundance * 100.0).ToString("0.00") + "%";
+                    }
+                    else
+                    {
+                        abundanceString = (abundance * 1000000.0).ToString("0.0") + "ppm";
+                    }
+                    GUI.Window(id, new Rect(mouse.x + 10, mouse.y + 10, 200f, 55f), i =>
+                    {
+                        GUI.Label(new Rect(5, 10, 190, 20), "Long: " + _mouseCoords.Longitude.ToString("###.##") + " Lat: " + _mouseCoords.Latitude.ToString("####.##"));
+                        GUI.Label(new Rect(5, 30, 190, 20), "Amount: " + abundanceString);
+
+                    },
+                    _selectedResourceName);
                 }
             }
         }
+        public static Coordinates GetMouseCoordinates(CelestialBody targetBody)
+        {
+            Ray mouseRay = PlanetariumCamera.Camera.ScreenPointToRay(Input.mousePosition);
+            mouseRay.origin = ScaledSpace.ScaledToLocalSpace(mouseRay.origin);
+            var bodyToOrigin = mouseRay.origin - targetBody.position;
+            double curRadius = targetBody.pqsController.radiusMax;
+            double lastRadius = 0;
+            int loops = 0;
+            while (loops < 50)
+            {
+                Vector3d relSurfacePosition;
+                if (PQS.LineSphereIntersection(bodyToOrigin, mouseRay.direction, curRadius, out relSurfacePosition))
+                {
+                    var surfacePoint = targetBody.position + relSurfacePosition;
+                    double alt = targetBody.pqsController.GetSurfaceHeight(
+                        QuaternionD.AngleAxis(targetBody.GetLongitude(surfacePoint), Vector3d.down) * QuaternionD.AngleAxis(targetBody.GetLatitude(surfacePoint), Vector3d.forward) * Vector3d.right);
+                    double error = Math.Abs(curRadius - alt);
+                    if (error < (targetBody.pqsController.radiusMax - targetBody.pqsController.radiusMin) / 100)
+                    {
+                        return new Coordinates(targetBody.GetLatitude(surfacePoint), Utilities.ClampDegrees(targetBody.GetLongitude(surfacePoint)));
+                    }
+                    else
+                    {
+                        lastRadius = curRadius;
+                        curRadius = alt;
+                        loops++;
+                    }
+                }
+                else
+                {
+                    if (loops == 0)
+                    {
+                        break;
+                    }
+                    else
+                    { // Went too low, needs to try higher
+                        curRadius = (lastRadius * 9 + curRadius) / 10;
+                        loops++;
+                    }
+                }
+            }
+            return null;
+        }
+
 
         private void evilmesh(CelestialBody targetBody, string resourceName)
         {
@@ -125,8 +246,14 @@ namespace MapResourceOverlay
                     var avail = ORSPlanetaryResourceMapData.getResourceAvailabilityByRealResourceName(bodyIndex, resourceName, 90 - lat, lon);
                     var amount = avail.getAmount();
                     amount = Mathf.Clamp((float)amount * 500000f, 0f, 255f);
-
-                    colors[lon + lat * (nbLong + 1) + 1] = new Color32(Convert.ToByte(amount), byte.MinValue, byte.MinValue, 100);
+                    if (amount > 0.0)
+                    {
+                        colors[lon + lat * (nbLong + 1) + 1] = new Color32(Convert.ToByte(amount), byte.MinValue, byte.MinValue, 70);
+                    }
+                    else
+                    {
+                        colors[lon + lat * (nbLong + 1) + 1] = new Color32(byte.MinValue, byte.MinValue, byte.MinValue, 0);
+                    }
                 }
             }
             vertices[vertices.Length - 1] = Vector3.up * -radius;
@@ -171,13 +298,13 @@ namespace MapResourceOverlay
                     int current = lon + lat * (nbLong + 1) + 1;
                     int next = current + nbLong + 1;
 
-                    triangles[i++] = current;
+                    triangles[i++] = next + 1;
                     triangles[i++] = current + 1;
-                    triangles[i++] = next + 1;
-
                     triangles[i++] = current;
-                    triangles[i++] = next + 1;
+
                     triangles[i++] = next;
+                    triangles[i++] = next + 1;
+                    triangles[i++] = current;
                 }
             }
 
@@ -209,7 +336,12 @@ namespace MapResourceOverlay
                 return target.vessel.mainBody;
             return null;
         }
-        public bool Show { get; set; }
+
+        public bool Show
+        {
+            get { return _show; }
+            set { _show = value; }
+        }
 
         public List<string> Resources
         {
@@ -219,39 +351,65 @@ namespace MapResourceOverlay
         public string SelectedResourceName
         {
             get { return _selectedResourceName; }
-            set 
-            { 
+            set
+            {
                 _selectedResourceName = value;
                 _changed = true;
             }
         }
+
+
     }
 
     public class MapOverlayGui : Window<MapOverlayGui>
     {
-        private readonly MapOverlay _model;
+        public MapOverlay Model;
 
-        public MapOverlayGui(MapOverlay model) : base("Map Overlay", 300, 200)
+        public MapOverlayGui(MapOverlay model)
+            : base("Map Overlay", 300, 200)
         {
-            _model = model;
+            Model = model;
+
         }
 
         protected override void DrawWindowContents(int windowId)
         {
             if (GUILayout.Button("Toggle Overlay"))
             {
-                _model.Show = !_model.Show;
+                Model.Show = !Model.Show;
             }
             GUILayout.Box("");
             GUILayout.BeginVertical();
-            foreach (var res in _model.Resources)
-            {                
+            foreach (var res in Model.Resources)
+            {
                 if (GUILayout.Button(res))
                 {
-                    _model.SelectedResourceName = res;
+                    Model.SelectedResourceName = res;
                 }
             }
             GUILayout.EndVertical();
+        }
+    }
+
+    public class Coordinates
+    {
+        private readonly double _latitude;
+        private readonly double _longitude;
+
+        public Coordinates(double latitude, double longitude)
+        {
+            _latitude = latitude;
+            _longitude = longitude;
+        }
+
+        public double Latitude
+        {
+            get { return _latitude; }
+        }
+
+        public double Longitude
+        {
+            get { return _longitude; }
         }
     }
 

@@ -398,5 +398,12 @@ namespace MapResourceOverlay
                 return ("-" + days + "d" + hours + "h" + minutes + "m" + seconds + "s");
 
         }
+
+        public static double ClampDegrees(double angle)
+        {
+            angle %= 360;
+            angle = angle < 0 ? angle + 360 : angle;
+            return angle > 180 ? angle - 360 : angle;
+        }
     }
 }
