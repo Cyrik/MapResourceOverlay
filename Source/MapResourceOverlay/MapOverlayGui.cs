@@ -45,6 +45,20 @@ namespace MapResourceOverlay
                     Model.UseScansat = true;
                 }
             }
+            if (Model.ShowTooltip)
+            {
+                if (GUILayout.Button("Disable Tooltip"))
+                {
+                    Model.ShowTooltip = false;
+                }
+            }
+            else
+            {
+                if (GUILayout.Button("Enable Tooltip"))
+                {
+                    Model.ShowTooltip = true;
+                }
+            }
 
             Model.Bright = GUILayout.Toggle(Model.Bright, "bright");
 

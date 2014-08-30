@@ -40,7 +40,7 @@ namespace MapResourceOverlay
         public bool useScansat;
         [KSPField(isPersistant = true)]
         public bool show = true;
-
+        [KSPField(isPersistant = true)] public bool showTooltip = true;
         private GlobalSettings _globalSettings;
 
 
@@ -200,6 +200,12 @@ namespace MapResourceOverlay
             }
         }
 
+        public bool ShowTooltip
+        {
+            get { return showTooltip; }
+            set { showTooltip = value; }
+        }
+
         private int GetScansatId(string resourceName)
         {
             if (_scansatEnum != null)
@@ -312,7 +318,7 @@ namespace MapResourceOverlay
                     // ignore the error and assume the pause menu is not open
                 }
             }
-            if (_targetBody != FlightGlobals.ActiveVessel.mainBody || paused) //dont show tooltips on different bodys or ORS lags
+            if (_targetBody != FlightGlobals.ActiveVessel.mainBody || paused || !showTooltip) //dont show tooltips on different bodys or ORS lags
             {
                 return;
             }
@@ -342,15 +348,8 @@ namespace MapResourceOverlay
                     var abundance = ORSPlanetaryResourceMapData.getResourceAvailabilityByRealResourceName(
                         _targetBody.flightGlobalsIndex, _selectedResourceName.Resource.ResourceName, _mouseCoords.Latitude, _mouseCoords.Longitude)
                         .getAmount();
-                    string abundanceString;
-                    if (abundance > 0.001)
-                    {
-                        abundanceString = (abundance * 100.0).ToString("0.00") + "%";
-                    }
-                    else
-                    {
-                        abundanceString = (abundance * 1000000.0).ToString("0.0") + "ppm";
-                    }
+                    string abundanceString = (abundance * 1000000.0).ToString("0.0") + "ppm";
+                    
                     GUI.Window(_toolTipId, new Rect(_mouse.x + 10, _mouse.y + 10, 200f, 55f), i =>
                     {
                         GUI.Label(new Rect(5, 10, 190, 20), "Long: " + _mouseCoords.Longitude.ToString("###.##") + " Lat: " + _mouseCoords.Latitude.ToString("####.##"));
@@ -521,20 +520,18 @@ namespace MapResourceOverlay
             }
             var avail = ORSPlanetaryResourceMapData.getResourceAvailabilityByRealResourceName(body.flightGlobalsIndex, resource.Resource.ResourceName, latitude, longitude);
             var amount = avail.getAmount();
-            amount = Mathf.Clamp((float)amount * 1000000f, 0f, 255f);
-            if (!bright)
+            amount = amount * 1000000;
+            if (amount > cutoff)
             {
-                if (amount > cutoff)
+                amount = Mathf.Clamp((float)amount, 0f, 255f);
+                if (!bright)
                 {
                     var r = amount * (resource.HighColor.r / 255.0);
                     var g = amount * (resource.HighColor.g / 255.0);
                     var b = amount * (resource.HighColor.b / 255.0);
                     return new Color32(Convert.ToByte(r), Convert.ToByte(g), Convert.ToByte(b), resource.HighColor.a);
                 }
-            }
-            else
-            {
-                if (amount > cutoff)
+                else
                 {
                     return new Color32(255, Convert.ToByte(amount), Convert.ToByte(amount), 150);
                 }
