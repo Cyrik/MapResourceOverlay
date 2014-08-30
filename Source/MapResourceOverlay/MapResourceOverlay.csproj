@@ -51,9 +51,14 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Coordinates.cs" />
+    <Compile Include="Extensions.cs" />
     <Compile Include="MapOverlay.cs" />
-    <Compile Include="MapOverlayController.cs" />
+    <Compile Include="MapOverlayGui.cs" />
+    <Compile Include="MapResourceOverlay.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Resource.cs" />
+    <Compile Include="ScenarioAdder.cs" />
     <Compile Include="Utilities.cs" />
     <Compile Include="Window.cs" />
   </ItemGroup>

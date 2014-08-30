@@ -10,8 +10,7 @@ using OpenResourceSystem;
 
 namespace MapResourceOverlay
 {
-    [KSPAddon(KSPAddon.Startup.Flight, true)]
-    public class MapOverlay : MonoBehaviour
+    public class MapOverlay : ScenarioModule
     {
         private CelestialBody _body;
         private Mesh _mesh;
@@ -25,7 +24,7 @@ namespace MapResourceOverlay
             new Resource("Water","Aquifer")
         };
 
-        private readonly IButton _mapOverlayButton;
+        private IButton _mapOverlayButton;
         private MapOverlayGui _gui;
         private bool _changed;
         private Resource _selectedResourceName;
@@ -35,44 +34,96 @@ namespace MapResourceOverlay
 
         private IsCoveredDelegate _scansatIsCoveredDelegate;
         private Type _scansatEnum;
+        private Transform _origTransform;
 
         private Vector2 _mouse;
         private int _toolTipId;
         private int _currentLat;
+        [KSPField(isPersistant = true)]
+        public int cutoff = 20;
+        [KSPField(isPersistant = true)]
+        public bool bright;
+        [KSPField(isPersistant = true)]
+        public bool useScansat;
+        [KSPField(isPersistant = true)]
+        public bool show = true;
+
+        
         public int Cutoff
         {
-            get { return MapOverlayController.Current.Cutoff; }
-            set { MapOverlayController.Current.Cutoff = value; _changed = true; }
+            get { return cutoff; }
+            set
+            {
+                if (cutoff != value)
+                {
+                    cutoff = value;
+                    _changed = true;
+                }
+            }
         }
-
         public bool Bright
         {
-            get { return MapOverlayController.Current.Bright; }
-            set { MapOverlayController.Current.Bright = value; _changed = true; }
+            get { return bright; }
+            set {
+                if (bright != value)
+                {
+                    bright = value; _changed = true;
+                }
+                }
         }
-
         public bool UseScansat
         {
-            get { return MapOverlayController.Current.UseScansat; }
-            set { MapOverlayController.Current.UseScansat = value; _changed = true; }
+            get { return useScansat; }
+            set
+            {
+                if (useScansat != value)
+                {
+                    useScansat = value;
+                    _changed = true;
+                }
+            }
         }
         public bool Show
         {
-            get { return MapOverlayController.Current.Show; }
-            set { MapOverlayController.Current.Show = value; _changed = true; }
+            get { return show; }
+            set
+            {
+                if (show != value)
+                {
+                    show = value;
+                    _changed = true;
+                }
+            }
         }
         public MapOverlay()
         {
+            this.Log("Instantiating");
+            _origTransform = gameObject.transform.parent;
+            var filter = gameObject.AddComponent<MeshFilter>();
+            if (filter != null)
+            {
+                _mesh = filter.mesh;
+            }
+            else
+            {
+                _mesh = gameObject.GetComponent<MeshFilter>().mesh;
+            }
+            
+            gameObject.AddComponent<MeshRenderer>();
+        }
+
+        public override void OnAwake()
+        {
+            this.Log("Awaking");
+            base.OnAwake();
             _mapOverlayButton = ToolbarManager.Instance.add("MapResourceOverlay", "ResourceOverlay");
             _mapOverlayButton.TexturePath = "MapResourceOverlay/Assets/MapOverlayIcon";
             _mapOverlayButton.ToolTip = "Map Resource Overlay";
             _mapOverlayButton.Visibility = new GameScenesVisibility(GameScenes.FLIGHT);
             _mapOverlayButton.OnClick += e => ToggleGui();
-            DontDestroyOnLoad(this);
             _toolTipId = new System.Random().Next(65536) + Assembly.GetExecutingAssembly().GetName().Name.GetHashCode() + "tooltip".GetHashCode();
-
-            GameEvents.onHideUI.Add(() => Show = false);
-            GameEvents.onShowUI.Add(() => Show = true); 
+            GameEvents.onHideUI.Add(MakeInvisible);
+            GameEvents.onShowUI.Add(MakeVisible);
         }
 
         public void ToggleGui()
@@ -85,30 +136,106 @@ namespace MapResourceOverlay
             _gui.SetVisible(true);
         }
 
+
+        public void OnDisable()
+        {
+            this.Log("disabling MapOverlay");
+            
+        }
         public void OnDestroy()
         {
-            Debug.Log("destroying MapResourceOverlay");
+            
+            this.Log("destroying MapResourceOverlay");
+            gameObject.transform.parent = _origTransform;
             _mapOverlayButton.Destroy();
             if (_gui != null)
             {
                 _gui.Model = null;
-                _gui.SetVisible(false);
             }
+            Show = false;
             gameObject.renderer.enabled = false;
-        }
-
-        public void Awake()
-        {
+            
+            GameEvents.onHideUI.Remove(MakeInvisible);
+            GameEvents.onShowUI.Remove(MakeVisible);
             
         }
+
+        public void MakeVisible()
+        {
+            Show = true;
+        }
+
+        public void MakeInvisible()
+        {
+            Show = false;
+        }
+
         public void Start()
         {
-            Debug.Log("MapResourceOverlay starting");
+            this.Log("MapResourceOverlay starting");
             gameObject.layer = 10;
-            gameObject.AddComponent<MeshRenderer>();
-            _mesh = gameObject.AddComponent<MeshFilter>().mesh;
+            
+
             SelectedResourceName = Resources[0];
             InitializeScansatIntegration();
+        }
+
+
+
+        private static CelestialBody GetTargetBody(MapObject target)
+        {
+            if (target.type == MapObject.MapObjectType.CELESTIALBODY)
+                return target.celestialBody;
+            if (target.type == MapObject.MapObjectType.MANEUVERNODE)
+                return target.maneuverNode.patch.referenceBody;
+            if (target.type == MapObject.MapObjectType.VESSEL)
+                return target.vessel.mainBody;
+            return null;
+        }
+
+        public List<Resource> Resources
+        {
+            get { return _resources; }
+        }
+
+        public Resource SelectedResourceName
+        {
+            get { return _selectedResourceName; }
+            set
+            {
+                _selectedResourceName = value;
+                _changed = true;
+            }
+        }
+
+        private int GetScansatId(string resourceName)
+        {
+            if (_scansatEnum != null)
+            {
+                return (int)_scansatEnum.GetField(resourceName).GetValue(null);
+            }
+            return 0;
+        }
+
+        private void InitializeScansatIntegration()
+        {
+            var scanutil = AssemblyLoader.loadedAssemblies.SelectMany(x => x.assembly.GetExportedTypes())
+                        .FirstOrDefault(x => x.FullName == "SCANsat.SCANUtil");
+            var scandata =
+                AssemblyLoader.loadedAssemblies.SelectMany(x => x.assembly.GetExportedTypes())
+                    .FirstOrDefault(x => x.FullName == "SCANsat.SCANdata");
+            if (scanutil != null && scandata != null)
+            {
+                var method = scanutil.GetMethod("isCovered",
+                    new[] { typeof(double), typeof(double), typeof(CelestialBody), typeof(int) });
+                if (method != null)
+                {
+                    _scansatIsCoveredDelegate = (IsCoveredDelegate)Delegate.CreateDelegate(typeof(IsCoveredDelegate), method);
+                }
+                var tester = scandata.GetNestedType("SCANtype");
+                _scansatEnum = tester;
+
+            }
         }
 
         public void Update()
@@ -117,13 +244,11 @@ namespace MapResourceOverlay
             {
                 gameObject.renderer.enabled = (false);
             }
-            else
-                updateMapView();
+            else UpdateMapView();
         }
-
-        private void updateMapView()
+        private void UpdateMapView()
         {
-            if (!Show || MapView.MapCamera == null)
+            if (!show || MapView.MapCamera == null)
             {
                 gameObject.renderer.enabled = false;
             }
@@ -134,8 +259,8 @@ namespace MapResourceOverlay
 
                 if (_targetBody != null && (_targetBody != _body || _changed))
                 {
+                    this.Log("Drawing at " + _targetBody.name + " because " + (_targetBody != _body ? "body changed." : "something else changed."));
                     _changed = false;
-                    Debug.Log("new target: " + _targetBody.GetName());
                     var dir = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
                     var radii = System.IO.File.ReadAllLines(dir + "/Assets/Radii.cfg");
                     var radius = float.Parse(radii.First(x => x.StartsWith(_targetBody.GetName())).Split('=')[1]);
@@ -144,13 +269,13 @@ namespace MapResourceOverlay
                     gameObject.renderer.material = new Material(System.IO.File.ReadAllText(dir + "/Assets/MapOverlayShader.txt"));
                     gameObject.renderer.enabled = true;
                     gameObject.renderer.castShadows = false;
-                    gameObject.transform.parent = ScaledSpace.Instance.scaledSpaceTransforms.FirstOrDefault(t => t.name == _body.name); ;
+                    gameObject.transform.parent = ScaledSpace.Instance.scaledSpaceTransforms.FirstOrDefault(t => t.name == _body.bodyName);
                     gameObject.layer = 10;
                     gameObject.transform.localScale = Vector3.one * 1000f * radius;
                     gameObject.transform.localPosition = (Vector3.zero);
                     gameObject.transform.localRotation = (Quaternion.identity);
                 }
-                if (_targetBody != null && UseScansat && _scansatIsCoveredDelegate != null)
+                if (_targetBody != null && useScansat && _scansatIsCoveredDelegate != null)
                 {
                     RecalculateColors(_targetBody, SelectedResourceName);
                 }
@@ -159,13 +284,12 @@ namespace MapResourceOverlay
 
         private void RecalculateColors(CelestialBody targetBody, Resource resource)
         {
-            // Longitude |||
             const int nbLong = 360;
             #region Vertices
             var colors = _mesh.colors32;
 
             colors[0] = CalculateColor32At(targetBody, resource, 90, 0);
-            for (int lat = _currentLat; lat < _currentLat+2; lat++)
+            for (int lat = _currentLat; lat < _currentLat + 2; lat++)
             {
                 for (int lon = 0; lon <= nbLong; lon++)
                 {
@@ -188,16 +312,23 @@ namespace MapResourceOverlay
             {
                 return;
             }
-            if (Show && _targetBody != null)
+            if (show && _targetBody != null)
             {
                 if (Event.current.type == EventType.Layout)
                 {
-                    _mouseCoords = GetMouseCoordinates(_targetBody);
-                    _mouse = Event.current.mousePosition;
-                    if (UseScansat && _scansatIsCoveredDelegate != null &&_mouseCoords != null &&
-                        !_scansatIsCoveredDelegate(_mouseCoords.Longitude, _mouseCoords.Latitude, _targetBody, GetScansatId(_selectedResourceName.ScansatName)))
+                    try
                     {
-                        _mouseCoords = null;
+                        _mouseCoords = GetMouseCoordinates(_targetBody);
+                        _mouse = Event.current.mousePosition;
+                        if (useScansat && _scansatIsCoveredDelegate != null && _mouseCoords != null &&
+                            !_scansatIsCoveredDelegate(_mouseCoords.Longitude, _mouseCoords.Latitude, _targetBody, GetScansatId(_selectedResourceName.ScansatName)))
+                        {
+                            _mouseCoords = null;
+                        }
+                    }
+                    catch (NullReferenceException e)
+                    {
+                        this.Log("layout nullref" + e);
                     }
                 }
                 if (_mouseCoords != null)
@@ -273,6 +404,7 @@ namespace MapResourceOverlay
 
         private void evilmesh(CelestialBody targetBody, Resource resource)
         {
+
             _mesh.Clear();
 
             const float radius = 1f;
@@ -302,7 +434,7 @@ namespace MapResourceOverlay
                     float cos2 = Mathf.Cos(a2);
 
                     vertices[lon + lat * (nbLong + 1) + 1] = new Vector3(sin1 * cos2, cos1, sin1 * sin2) * radius;
-                    colors[lon + lat*(nbLong + 1) + 1] = CalculateColor32At(targetBody, resource, 90 - lat, lon);
+                    colors[lon + lat * (nbLong + 1) + 1] = CalculateColor32At(targetBody, resource, 90 - lat, lon);
                 }
             }
             vertices[vertices.Length - 1] = Vector3.up * -radius;
@@ -378,26 +510,24 @@ namespace MapResourceOverlay
         private Color32 CalculateColor32At(CelestialBody body, Resource resource, double latitude,
             double longitude)
         {
-            if (UseScansat && _scansatIsCoveredDelegate != null &&
-                !_scansatIsCoveredDelegate(longitude,latitude,body,GetScansatId(resource.ScansatName)))
+            if (useScansat && _scansatIsCoveredDelegate != null &&
+                !_scansatIsCoveredDelegate(longitude, latitude, body, GetScansatId(resource.ScansatName)))
             {
-                return new Color32(0,0,0,0);
+                return new Color32(0, 0, 0, 0);
             }
-
-
             var avail = ORSPlanetaryResourceMapData.getResourceAvailabilityByRealResourceName(body.flightGlobalsIndex, resource.ResourceName, latitude, longitude);
             var amount = avail.getAmount();
-            amount = Mathf.Clamp((float)amount * 500000f, 0f, 255f);
-            if (!Bright)
+            amount = Mathf.Clamp((float)amount * 1000000f, 0f, 255f);
+            if (!bright)
             {
-                if (amount > 0.0)
+                if (amount > cutoff)
                 {
                     return new Color32(Convert.ToByte(amount), 0, 0, 150);
                 }
             }
             else
             {
-                if (amount > 0.0)
+                if (amount > cutoff)
                 {
                     return new Color32(255, Convert.ToByte(amount), Convert.ToByte(amount), 150);
                 }
@@ -405,156 +535,6 @@ namespace MapResourceOverlay
             return new Color32(byte.MinValue, byte.MinValue, byte.MinValue, 0);
         }
 
-        private static CelestialBody GetTargetBody(MapObject target)
-        {
-            if (target.type == MapObject.MapObjectType.CELESTIALBODY)
-                return target.celestialBody;
-            if (target.type == MapObject.MapObjectType.MANEUVERNODE)
-                return target.maneuverNode.patch.referenceBody;
-            if (target.type == MapObject.MapObjectType.VESSEL)
-                return target.vessel.mainBody;
-            return null;
-        }
 
-        public List<Resource> Resources
-        {
-            get { return _resources; }
-        }
-
-        public Resource SelectedResourceName
-        {
-            get { return _selectedResourceName; }
-            set
-            {
-                _selectedResourceName = value;
-                _changed = true;
-            }
-        }
-
-
-
-        private int GetScansatId(string resourceName)
-        {
-            if (_scansatEnum != null)
-            {
-                return (int)_scansatEnum.GetField(resourceName).GetValue(null);
-            }
-            return 0;
-        }
-
-        private void InitializeScansatIntegration()
-        {
-            var scanutil = AssemblyLoader.loadedAssemblies.SelectMany(x => x.assembly.GetExportedTypes())
-                        .FirstOrDefault(x => x.FullName == "SCANsat.SCANUtil");
-            var scandata =
-                AssemblyLoader.loadedAssemblies.SelectMany(x => x.assembly.GetExportedTypes())
-                    .FirstOrDefault(x => x.FullName == "SCANsat.SCANdata");
-            if (scanutil != null && scandata != null)
-            {
-                var method = scanutil.GetMethod("isCovered",
-                    new[] { typeof(double), typeof(double), typeof(CelestialBody), typeof(int) });
-                if (method != null)
-                {
-                    _scansatIsCoveredDelegate = (IsCoveredDelegate)Delegate.CreateDelegate(typeof(IsCoveredDelegate), method);
-                }
-                var tester = scandata.GetNestedType("SCANtype");
-                _scansatEnum = tester;
-                
-            }
-        }
-    }
-
-    public class MapOverlayGui : Window<MapOverlayGui>
-    {
-        public MapOverlay Model;
-
-        public MapOverlayGui(MapOverlay model)
-            : base("Map Overlay", 300, 200)
-        {
-            Model = model;
-
-        }
-
-        protected override void DrawWindowContents(int windowId)
-        {
-            GUILayout.BeginVertical();
-            if (Model.Show)
-            {
-                if (GUILayout.Button("Disable Overlay"))
-                {
-                    Model.Show = false;
-                }
-            }
-            else
-            {
-                if (GUILayout.Button("Enable Overlay"))
-                {
-                    Model.Show = true;
-                }
-            }
-            if (Model.UseScansat)
-            {
-                if (GUILayout.Button("Disable Scansat"))
-                {
-                    Model.UseScansat = false;
-                }
-            }
-            else
-            {
-                if (GUILayout.Button("Enable Scansat"))
-                {
-                    Model.UseScansat = true;
-                }
-            }
-
-            Model.Bright = GUILayout.Toggle(Model.Bright, "bright");
-
-            
-            
-            GUILayout.Box("");
-            
-            foreach (var res in Model.Resources)
-            {
-                if (GUILayout.Button(res.ResourceName))
-                {
-                    Model.SelectedResourceName = res;
-                }
-            }
-            GUILayout.EndVertical();
-        }
-    }
-
-    public class Coordinates
-    {
-        private readonly double _latitude;
-        private readonly double _longitude;
-
-        public Coordinates(double latitude, double longitude)
-        {
-            _latitude = latitude;
-            _longitude = longitude;
-        }
-
-        public double Latitude
-        {
-            get { return _latitude; }
-        }
-
-        public double Longitude
-        {
-            get { return _longitude; }
-        }
-    }
-
-    public class Resource
-    {
-        public string ResourceName { get; set; }
-        public string ScansatName { get; set; }
-
-        public Resource(string resourceName, string scansatName = null)
-        {
-            ResourceName = resourceName;
-            ScansatName = scansatName ?? resourceName;
-        }
     }
 }
