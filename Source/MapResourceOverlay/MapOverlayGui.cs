@@ -68,7 +68,7 @@ namespace MapResourceOverlay
             
             foreach (var res in Model.Resources)
             {
-                if (GUILayout.Button(res.ResourceName))
+                if (GUILayout.Button(res.Resource.ResourceName))
                 {
                     Model.SelectedResourceName = res;
                 }

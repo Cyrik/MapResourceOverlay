@@ -15,19 +15,12 @@ namespace MapResourceOverlay
         private CelestialBody _body;
         private Mesh _mesh;
 
-        private readonly List<Resource> _resources = new List<Resource>
-        {
-            new Resource("Karbonite"),
-            new Resource("Minerals"),
-            new Resource("Ore"),
-            new Resource("Substrate"),
-            new Resource("Water","Aquifer")
-        };
+        private List<ResourceConfig> _resources;
 
         private IButton _mapOverlayButton;
         private MapOverlayGui _gui;
         private bool _changed;
-        private Resource _selectedResourceName;
+        private ResourceConfig _selectedResourceName;
         private Coordinates _mouseCoords;
         private CelestialBody _targetBody;
         private delegate bool IsCoveredDelegate(double lon, double lat, CelestialBody body, int mask);
@@ -48,7 +41,9 @@ namespace MapResourceOverlay
         [KSPField(isPersistant = true)]
         public bool show = true;
 
-        
+        private GlobalSettings _globalSettings;
+
+
         public int Cutoff
         {
             get { return cutoff; }
@@ -95,9 +90,10 @@ namespace MapResourceOverlay
                 }
             }
         }
-        public MapOverlay()
+
+        public override void OnAwake()
         {
-            this.Log("Instantiating");
+            this.Log("Awaking");
             _origTransform = gameObject.transform.parent;
             var filter = gameObject.AddComponent<MeshFilter>();
             if (filter != null)
@@ -108,13 +104,9 @@ namespace MapResourceOverlay
             {
                 _mesh = gameObject.GetComponent<MeshFilter>().mesh;
             }
-            
+            _globalSettings = new GlobalSettings();
             gameObject.AddComponent<MeshRenderer>();
-        }
-
-        public override void OnAwake()
-        {
-            this.Log("Awaking");
+            
             base.OnAwake();
             _mapOverlayButton = ToolbarManager.Instance.add("MapResourceOverlay", "ResourceOverlay");
             _mapOverlayButton.TexturePath = "MapResourceOverlay/Assets/MapOverlayIcon";
@@ -193,12 +185,12 @@ namespace MapResourceOverlay
             return null;
         }
 
-        public List<Resource> Resources
+        public List<ResourceConfig> Resources
         {
             get { return _resources; }
         }
 
-        public Resource SelectedResourceName
+        public ResourceConfig SelectedResourceName
         {
             get { return _selectedResourceName; }
             set
@@ -282,7 +274,7 @@ namespace MapResourceOverlay
             }
         }
 
-        private void RecalculateColors(CelestialBody targetBody, Resource resource)
+        private void RecalculateColors(CelestialBody targetBody, ResourceConfig resource)
         {
             const int nbLong = 360;
             #region Vertices
@@ -308,7 +300,19 @@ namespace MapResourceOverlay
 
         public void OnGUI()
         {
-            if (_targetBody != FlightGlobals.ActiveVessel.mainBody) //dont show tooltips on different bodys or ORS lags
+            bool paused = false;
+            if (HighLogic.LoadedSceneIsFlight)
+            {
+                try
+                {
+                    paused = PauseMenu.isOpen || FlightResultsDialog.isDisplaying;
+                }
+                catch (Exception)
+                {
+                    // ignore the error and assume the pause menu is not open
+                }
+            }
+            if (_targetBody != FlightGlobals.ActiveVessel.mainBody || paused) //dont show tooltips on different bodys or ORS lags
             {
                 return;
             }
@@ -321,7 +325,7 @@ namespace MapResourceOverlay
                         _mouseCoords = GetMouseCoordinates(_targetBody);
                         _mouse = Event.current.mousePosition;
                         if (useScansat && _scansatIsCoveredDelegate != null && _mouseCoords != null &&
-                            !_scansatIsCoveredDelegate(_mouseCoords.Longitude, _mouseCoords.Latitude, _targetBody, GetScansatId(_selectedResourceName.ScansatName)))
+                            !_scansatIsCoveredDelegate(_mouseCoords.Longitude, _mouseCoords.Latitude, _targetBody, GetScansatId(_selectedResourceName.Resource.ScansatName)))
                         {
                             _mouseCoords = null;
                         }
@@ -336,7 +340,7 @@ namespace MapResourceOverlay
 
                     _toolTipId = 0;
                     var abundance = ORSPlanetaryResourceMapData.getResourceAvailabilityByRealResourceName(
-                        _targetBody.flightGlobalsIndex, _selectedResourceName.ResourceName, _mouseCoords.Latitude, _mouseCoords.Longitude)
+                        _targetBody.flightGlobalsIndex, _selectedResourceName.Resource.ResourceName, _mouseCoords.Latitude, _mouseCoords.Longitude)
                         .getAmount();
                     string abundanceString;
                     if (abundance > 0.001)
@@ -353,7 +357,7 @@ namespace MapResourceOverlay
                         GUI.Label(new Rect(5, 30, 190, 20), "Amount: " + abundanceString);
 
                     },
-                    _selectedResourceName.ResourceName);
+                    _selectedResourceName.Resource.ResourceName);
                 }
             }
         }
@@ -402,7 +406,7 @@ namespace MapResourceOverlay
         }
 
 
-        private void evilmesh(CelestialBody targetBody, Resource resource)
+        private void evilmesh(CelestialBody targetBody, ResourceConfig resource)
         {
 
             _mesh.Clear();
@@ -507,22 +511,25 @@ namespace MapResourceOverlay
             _mesh.Optimize();
         }
 
-        private Color32 CalculateColor32At(CelestialBody body, Resource resource, double latitude,
+        private Color32 CalculateColor32At(CelestialBody body, ResourceConfig resource, double latitude,
             double longitude)
         {
             if (useScansat && _scansatIsCoveredDelegate != null &&
-                !_scansatIsCoveredDelegate(longitude, latitude, body, GetScansatId(resource.ScansatName)))
+                !_scansatIsCoveredDelegate(longitude, latitude, body, GetScansatId(resource.Resource.ScansatName)))
             {
                 return new Color32(0, 0, 0, 0);
             }
-            var avail = ORSPlanetaryResourceMapData.getResourceAvailabilityByRealResourceName(body.flightGlobalsIndex, resource.ResourceName, latitude, longitude);
+            var avail = ORSPlanetaryResourceMapData.getResourceAvailabilityByRealResourceName(body.flightGlobalsIndex, resource.Resource.ResourceName, latitude, longitude);
             var amount = avail.getAmount();
             amount = Mathf.Clamp((float)amount * 1000000f, 0f, 255f);
             if (!bright)
             {
                 if (amount > cutoff)
                 {
-                    return new Color32(Convert.ToByte(amount), 0, 0, 150);
+                    var r = amount * (resource.HighColor.r / 255.0);
+                    var g = amount * (resource.HighColor.g / 255.0);
+                    var b = amount * (resource.HighColor.b / 255.0);
+                    return new Color32(Convert.ToByte(r), Convert.ToByte(g), Convert.ToByte(b), resource.HighColor.a);
                 }
             }
             else
@@ -532,9 +539,142 @@ namespace MapResourceOverlay
                     return new Color32(255, Convert.ToByte(amount), Convert.ToByte(amount), 150);
                 }
             }
-            return new Color32(byte.MinValue, byte.MinValue, byte.MinValue, 0);
+            return resource.LowColor;
         }
 
+        public override void OnLoad(ConfigNode node)
+        {
+            this.Log("loading");
+            base.OnLoad(node);
+            var globalConfigFilename = IOUtils.GetFilePathFor(GetType(), "MapResourceOverlay.cfg");
+            if (File.Exists<MapOverlay>(globalConfigFilename))
+            {
+                var globalNode = ConfigNode.Load(globalConfigFilename);
+                _globalSettings.Load(globalNode);
+            }
+            _resources = _globalSettings.ColorConfigs;
+        }
 
+        public override void OnSave(ConfigNode node)
+        {
+            this.Log("saving");
+            base.OnSave(node);
+            var gloablNode = new ConfigNode();
+            _globalSettings.Save(gloablNode);
+            gloablNode.Save(IOUtils.GetFilePathFor(GetType(), "MapResourceOverlay.cfg"));
+
+        }
+    }
+
+    public class GlobalSettings : IConfigNode
+    {
+        public List<ResourceConfig> ColorConfigs { get; set; }
+
+        public GlobalSettings()
+        {
+            var config = new ResourceConfig
+            {
+                Resource = new Resource("Karbonite"),
+                LowColor = new Color32(0, 0, 0, 0),
+                HighColor = new Color32(255, 0, 0, 200)
+            };
+            var config2 = new ResourceConfig
+            {
+                Resource = new Resource("Ore"),
+                LowColor = new Color32(0, 0, 0, 0),
+                HighColor = new Color32(0, 255, 0, 200)
+            };
+            var config3 = new ResourceConfig
+            {
+                Resource = new Resource("Water", "Aquifer"),
+                LowColor = new Color32(0, 0, 0, 0),
+                HighColor = new Color32(0, 0, 255, 200)
+            };
+            var config4 = new ResourceConfig
+            {
+                Resource = new Resource("Minerals"),
+                LowColor = new Color32(0, 0, 0, 0),
+                HighColor = new Color32(0, 255, 255, 200)
+            };
+            var config5 = new ResourceConfig
+            {
+                Resource = new Resource("Substrate"),
+                LowColor = new Color32(0, 0, 0, 0),
+                HighColor = new Color32(255, 0, 255, 200)
+            };
+            ColorConfigs = new List<ResourceConfig>{config, config2,config3,config4,config5};
+        }
+
+        public void Load(ConfigNode node)
+        {
+            
+            try
+            {
+                var globalSettingsNode = node.GetNode("globalSettings");
+                var colorConfigsNode = globalSettingsNode.GetNode("colorConfigs");
+                ColorConfigs = new List<ResourceConfig>();
+                foreach (ConfigNode value in colorConfigsNode.nodes)
+                {
+                    ColorConfigs.Add(ResourceConfig.Load(value));
+                }
+            }
+            catch (Exception e)
+            {
+                this.Log("Globalconfig broken"+e);
+            }
+        }
+
+        public void Save(ConfigNode node)
+        {
+            
+            var globalSettingsNode = node.AddNode("globalSettings");
+            var colorConfigsNode = globalSettingsNode.AddNode("colorConfigs");
+            foreach (var colorConfig in ColorConfigs)
+            {
+                colorConfig.Save(colorConfigsNode);
+            }
+            
+        }
+        
+    }
+    public class ResourceConfig
+    {
+        public Resource Resource { get; set; }
+        public Color32 LowColor { get; set; }
+        public Color32 HighColor { get; set; }
+        public static ResourceConfig Load(ConfigNode configNode)
+        {
+            var res = new ResourceConfig
+            {
+                Resource = Resource.DeserializeResource(configNode.GetValue("Resource")),
+                LowColor = StringToColor(configNode.GetValue("LowColor")),
+                HighColor = StringToColor(configNode.GetValue("HighColor"))
+            };
+            return res;
+        }
+
+        private static Color StringToColor(string str)
+        {
+            var strArr = str.TrimStart('(').TrimEnd(')').Split(',');
+            byte r, g, b, a;
+            if (strArr.Count() == 4 && Byte.TryParse(strArr[0], out r) && Byte.TryParse(strArr[1], out g) && Byte.TryParse(strArr[2], out b) && Byte.TryParse(strArr[3], out a))
+            {
+                return new Color32(r, g, b, a);
+            }
+            return new Color32();
+        }
+
+        public void Save(ConfigNode node)
+        {
+            var colorConfigNode = node.AddNode(Resource.ResourceName);
+            colorConfigNode.AddValue("Resource", Resource.Serialize());
+            colorConfigNode.AddValue("LowColor", ColorToString(LowColor));
+            colorConfigNode.AddValue("HighColor", ColorToString(HighColor));
+        }
+
+        private string ColorToString(Color32 color)
+        {
+            return "(" + color.r + "," + color.g + "," + color.b + "," + color.a + ")";
+        }
     }
 }
