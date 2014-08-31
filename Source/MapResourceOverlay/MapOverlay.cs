@@ -20,7 +20,7 @@ namespace MapResourceOverlay
         private IButton _mapOverlayButton;
         private MapOverlayGui _gui;
         private bool _changed;
-        private ResourceConfig _selectedResourceName;
+        private ResourceConfig _selectedResource;
         private Coordinates _mouseCoords;
         private CelestialBody _targetBody;
 
@@ -162,7 +162,7 @@ namespace MapResourceOverlay
         {
             this.Log("MapResourceOverlay starting");
             gameObject.layer = 10;
-            SelectedResourceName = Resources[0];
+            SelectedResource = Resources[0];
             var type = typeof(IOverlayProvider);
             _overlayProviders = AppDomain.CurrentDomain.GetAssemblies()
                 .SelectMany(s => s.GetLoadableTypes().Where(x => type.IsAssignableFrom(x) && !x.IsInterface))
@@ -182,12 +182,12 @@ namespace MapResourceOverlay
             get { return _resources; }
         }
 
-        public ResourceConfig SelectedResourceName
+        public ResourceConfig SelectedResource
         {
-            get { return _selectedResourceName; }
+            get { return _selectedResource; }
             set
             {
-                _selectedResourceName = value;
+                _selectedResource = value;
                 _changed = true;
             }
         }
@@ -237,7 +237,7 @@ namespace MapResourceOverlay
                     var radii = System.IO.File.ReadAllLines(dir + "/Assets/Radii.cfg");
                     var radius = float.Parse(radii.First(x => x.StartsWith(_targetBody.GetName())).Split('=')[1]);
                     _body = _targetBody;
-                    CreateMesh(_targetBody, SelectedResourceName);
+                    CreateMesh(_targetBody, SelectedResource);
                     gameObject.renderer.material = new Material(System.IO.File.ReadAllText(dir + "/Assets/MapOverlayShader.txt"));
                     gameObject.renderer.enabled = true;
                     gameObject.renderer.castShadows = false;
@@ -249,7 +249,7 @@ namespace MapResourceOverlay
                 }
                 if (_targetBody != null && useScansat && _scanSat.Active())
                 {
-                    RecalculateColors(_targetBody, SelectedResourceName);
+                    RecalculateColors(_targetBody, SelectedResource);
                 }
             }
         }
@@ -305,7 +305,7 @@ namespace MapResourceOverlay
                         _mouseCoords = _targetBody.GetMouseCoordinates();
                         _mouse = Event.current.mousePosition;
                         if (useScansat && _scanSat.Active() && _mouseCoords != null &&
-                            !_scanSat.IsCovered(_mouseCoords.Longitude, _mouseCoords.Latitude, _targetBody,_selectedResourceName.Resource))
+                            !OverlayProvider.IsCoveredAt(_mouseCoords.Longitude, _mouseCoords.Latitude, _targetBody,_selectedResource))
                         {
                             _mouseCoords = null;
                         }
@@ -320,12 +320,16 @@ namespace MapResourceOverlay
 
                     _toolTipId = 0;
                     var overlayTooltip = OverlayProvider.TooltipContent(_mouseCoords.Latitude, _mouseCoords.Longitude,
-                        _targetBody, SelectedResourceName);
-                    
-                    GUI.Window(_toolTipId, new Rect(_mouse.x + 10, _mouse.y + 10, 200f, 55f), i =>
+                        _targetBody, SelectedResource);
+                    if (Math.Abs(overlayTooltip.Size.x) < 0.01  && Math.Abs(overlayTooltip.Size.y) < 0.01)
+                    {
+                        overlayTooltip.Size = new Vector2(200f,55f);
+                    }
+                    var style = new GUIStyle(GUI.skin.label) {wordWrap = true};
+                    GUI.Window(_toolTipId, new Rect(_mouse.x + 10, _mouse.y + 10, overlayTooltip.Size.x, overlayTooltip.Size.y), i =>
                     {
                         GUI.Label(new Rect(5, 10, 190, 20), "Long: " + _mouseCoords.Longitude.ToString("###.##") + " Lat: " + _mouseCoords.Latitude.ToString("####.##"));
-                        GUI.Label(new Rect(5, 30, 190, 20), overlayTooltip.Content);
+                        GUI.Label(new Rect(5, 30, overlayTooltip.Size.x - 10, overlayTooltip.Size.y - 35), overlayTooltip.Content,style);
 
                     },
                     overlayTooltip.Title);

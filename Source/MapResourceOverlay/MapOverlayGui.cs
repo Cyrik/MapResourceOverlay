@@ -84,7 +84,7 @@ namespace MapResourceOverlay
                 {
                     if (GUILayout.Button(res.Resource.ResourceName))
                     {
-                        Model.SelectedResourceName = res;
+                        Model.SelectedResource = res;
                     }
                 }
             }

@@ -169,6 +169,13 @@ namespace MapResourceOverlay
         // 	(these are collected here for the same reason)
 
 
-
+        public bool IsCovered(double longitude, double latitude, CelestialBody body,string str)
+        {
+            if (!Active())
+            {
+                return false;
+            }
+            return _scansatIsCoveredDelegate(longitude, latitude, body, GetScansatId(str));
+        }
     }
 }

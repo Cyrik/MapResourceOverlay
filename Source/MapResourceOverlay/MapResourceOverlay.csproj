@@ -63,6 +63,7 @@
     <Compile Include="ResourceConfig.cs" />
     <Compile Include="ScanSatWrapper.cs" />
     <Compile Include="ScenarioAdder.cs" />
+    <Compile Include="ScienceOverlayProvider.cs" />
     <Compile Include="Utilities.cs" />
     <Compile Include="Window.cs" />
   </ItemGroup>
