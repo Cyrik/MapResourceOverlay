@@ -1,7 +1,7 @@
 {
 	"NAME":"Map Resource Overlay",
 	"URL":"http://ksp-avc.cybutek.net/version.php?id=23",
-	"DOWNLOAD":"https://github.com/Cyrik/MapResourceOverlay/releases",
+	"DOWNLOAD":"https://raw.githubusercontent.com/Cyrik/MapResourceOverlay/master/GameData/MapResourceOverlay/MapResourceOverlay.version",
 	"CHANGE_LOG_URL":"",
 	"VERSION":{"MAJOR":0,"MINOR":2,"PATCH":2,"BUILD":0},
 	"KSP_VERSION":{"MAJOR":0,"MINOR":24,"PATCH":2}

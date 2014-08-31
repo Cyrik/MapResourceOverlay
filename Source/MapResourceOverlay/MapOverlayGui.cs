@@ -77,14 +77,23 @@ namespace MapResourceOverlay
             
             GUILayout.EndHorizontal();
             
-            
-            GUILayout.Box("");
-            
-            foreach (var res in Model.Resources)
+            if (Model.OverlayProvider.GetType() == typeof (ResourceOverlayProvider))
             {
-                if (GUILayout.Button(res.Resource.ResourceName))
+                GUILayout.Box("");
+                foreach (var res in Model.Resources)
                 {
-                    Model.SelectedResourceName = res;
+                    if (GUILayout.Button(res.Resource.ResourceName))
+                    {
+                        Model.SelectedResourceName = res;
+                    }
+                }
+            }
+            GUILayout.Box("Overlay types:");
+            foreach (var overlayProvider in Model.OverlayProviders)
+            {
+                if (GUILayout.Button(overlayProvider.GuiName))
+                {
+                    Model.SetOverlayProvider(overlayProvider);
                 }
             }
             GUILayout.EndVertical();

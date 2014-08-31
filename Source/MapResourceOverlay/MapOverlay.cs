@@ -23,27 +23,23 @@ namespace MapResourceOverlay
         private ResourceConfig _selectedResourceName;
         private Coordinates _mouseCoords;
         private CelestialBody _targetBody;
-        private delegate bool IsCoveredDelegate(double lon, double lat, CelestialBody body, int mask);
 
-        private IsCoveredDelegate _scansatIsCoveredDelegate;
-        private Type _scansatEnum;
+        private ScanSatWrapper _scanSat;
         private Transform _origTransform;
 
         private Vector2 _mouse;
         private int _toolTipId;
         private int _currentLat;
-        [KSPField(isPersistant = true)]
-        public int cutoff = 20;
-        [KSPField(isPersistant = true)]
-        public bool bright;
-        [KSPField(isPersistant = true)]
-        public bool useScansat;
-        [KSPField(isPersistant = true)]
-        public bool show = true;
+        [KSPField(isPersistant = true)] public int cutoff = 20;
+        [KSPField(isPersistant = true)] public bool bright;
+        [KSPField(isPersistant = true)] public bool useScansat;
+        [KSPField(isPersistant = true)] public bool show = true;
         [KSPField(isPersistant = true)] public bool showTooltip = true;
+        [KSPField(isPersistant = true)] public string overlayProviderName = "MapResourceOverlay.ResourceOverlayProvider";
         private GlobalSettings _globalSettings;
+        private List<IOverlayProvider> _overlayProviders;
 
-
+        public IOverlayProvider OverlayProvider { get; private set; }        
         public int Cutoff
         {
             get { return cutoff; }
@@ -106,7 +102,7 @@ namespace MapResourceOverlay
             }
             _globalSettings = new GlobalSettings();
             gameObject.AddComponent<MeshRenderer>();
-            
+            _scanSat = ScanSatWrapper.Instance;
             base.OnAwake();
             _mapOverlayButton = ToolbarManager.Instance.add("MapResourceOverlay", "ResourceOverlay");
             _mapOverlayButton.TexturePath = "MapResourceOverlay/Assets/MapOverlayIcon";
@@ -116,6 +112,8 @@ namespace MapResourceOverlay
             _toolTipId = new System.Random().Next(65536) + Assembly.GetExecutingAssembly().GetName().Name.GetHashCode() + "tooltip".GetHashCode();
             GameEvents.onHideUI.Add(MakeInvisible);
             GameEvents.onShowUI.Add(MakeVisible);
+            _overlayProviders = new List<IOverlayProvider>();
+            
         }
 
         public void ToggleGui()
@@ -127,8 +125,6 @@ namespace MapResourceOverlay
             _gui = new MapOverlayGui(this);
             _gui.SetVisible(true);
         }
-
-
         public void OnDisable()
         {
             this.Log("disabling MapOverlay");
@@ -154,35 +150,31 @@ namespace MapResourceOverlay
 
         public void MakeVisible()
         {
-            Show = true;
+            enabled = true;
         }
 
         public void MakeInvisible()
         {
-            Show = false;
+            enabled = false;
         }
 
         public void Start()
         {
             this.Log("MapResourceOverlay starting");
             gameObject.layer = 10;
-            
-
             SelectedResourceName = Resources[0];
-            InitializeScansatIntegration();
-        }
-
-
-
-        private static CelestialBody GetTargetBody(MapObject target)
-        {
-            if (target.type == MapObject.MapObjectType.CELESTIALBODY)
-                return target.celestialBody;
-            if (target.type == MapObject.MapObjectType.MANEUVERNODE)
-                return target.maneuverNode.patch.referenceBody;
-            if (target.type == MapObject.MapObjectType.VESSEL)
-                return target.vessel.mainBody;
-            return null;
+            var type = typeof(IOverlayProvider);
+            _overlayProviders = AppDomain.CurrentDomain.GetAssemblies()
+                .SelectMany(s => s.GetLoadableTypes().Where(x => type.IsAssignableFrom(x) && !x.IsInterface))
+                .Select(x=> Activator.CreateInstance(x) as IOverlayProvider)
+                .Where(x => x != null)
+                .ToList();
+            var provider = OverlayProviders.FirstOrDefault(x => x.GetType().FullName == overlayProviderName);
+            if (provider == null)
+            {
+                OverlayProvider = new ResourceOverlayProvider();
+            }
+            OverlayProvider = provider;
         }
 
         public List<ResourceConfig> Resources
@@ -206,36 +198,18 @@ namespace MapResourceOverlay
             set { showTooltip = value; }
         }
 
-        private int GetScansatId(string resourceName)
+        public List<IOverlayProvider> OverlayProviders
         {
-            if (_scansatEnum != null)
-            {
-                return (int)_scansatEnum.GetField(resourceName).GetValue(null);
-            }
-            return 0;
+            get { return _overlayProviders; }
         }
 
-        private void InitializeScansatIntegration()
+
+        public void SetOverlayProvider(IOverlayProvider overlayProvider)
         {
-            var scanutil = AssemblyLoader.loadedAssemblies.SelectMany(x => x.assembly.GetExportedTypes())
-                        .FirstOrDefault(x => x.FullName == "SCANsat.SCANUtil");
-            var scandata =
-                AssemblyLoader.loadedAssemblies.SelectMany(x => x.assembly.GetExportedTypes())
-                    .FirstOrDefault(x => x.FullName == "SCANsat.SCANdata");
-            if (scanutil != null && scandata != null)
-            {
-                var method = scanutil.GetMethod("isCovered",
-                    new[] { typeof(double), typeof(double), typeof(CelestialBody), typeof(int) });
-                if (method != null)
-                {
-                    _scansatIsCoveredDelegate = (IsCoveredDelegate)Delegate.CreateDelegate(typeof(IsCoveredDelegate), method);
-                }
-                var tester = scandata.GetNestedType("SCANtype");
-                _scansatEnum = tester;
-
-            }
+            OverlayProvider = overlayProvider;
+            _changed = true;
+            overlayProviderName = overlayProvider.GetType().FullName;
         }
-
         public void Update()
         {
             if (HighLogic.LoadedScene != GameScenes.FLIGHT)
@@ -253,7 +227,7 @@ namespace MapResourceOverlay
             else
             {
                 gameObject.renderer.enabled = true;
-                _targetBody = GetTargetBody(MapView.MapCamera.target);
+                _targetBody = MapView.MapCamera.target.GetTargetBody();
 
                 if (_targetBody != null && (_targetBody != _body || _changed))
                 {
@@ -263,7 +237,7 @@ namespace MapResourceOverlay
                     var radii = System.IO.File.ReadAllLines(dir + "/Assets/Radii.cfg");
                     var radius = float.Parse(radii.First(x => x.StartsWith(_targetBody.GetName())).Split('=')[1]);
                     _body = _targetBody;
-                    evilmesh(_targetBody, SelectedResourceName);
+                    CreateMesh(_targetBody, SelectedResourceName);
                     gameObject.renderer.material = new Material(System.IO.File.ReadAllText(dir + "/Assets/MapOverlayShader.txt"));
                     gameObject.renderer.enabled = true;
                     gameObject.renderer.castShadows = false;
@@ -273,7 +247,7 @@ namespace MapResourceOverlay
                     gameObject.transform.localPosition = (Vector3.zero);
                     gameObject.transform.localRotation = (Quaternion.identity);
                 }
-                if (_targetBody != null && useScansat && _scansatIsCoveredDelegate != null)
+                if (_targetBody != null && useScansat && _scanSat.Active())
                 {
                     RecalculateColors(_targetBody, SelectedResourceName);
                 }
@@ -286,15 +260,15 @@ namespace MapResourceOverlay
             #region Vertices
             var colors = _mesh.colors32;
 
-            colors[0] = CalculateColor32At(targetBody, resource, 90, 0);
+            colors[0] = CalculateColor32ForResourceAt(targetBody, resource, 90, 0);
             for (int lat = _currentLat; lat < _currentLat + 2; lat++)
             {
                 for (int lon = 0; lon <= nbLong; lon++)
                 {
-                    colors[lon + lat * (nbLong + 1) + 1] = CalculateColor32At(targetBody, resource, 90 - lat, lon);
+                    colors[lon + lat * (nbLong + 1) + 1] = CalculateColor32ForResourceAt(targetBody, resource, 90 - lat, lon);
                 }
             }
-            colors[colors.Length - 1] = CalculateColor32At(targetBody, resource, -90, 0);
+            colors[colors.Length - 1] = CalculateColor32ForResourceAt(targetBody, resource, -90, 0);
             #endregion
             _currentLat += 2;
             if (_currentLat >= 180)
@@ -328,10 +302,10 @@ namespace MapResourceOverlay
                 {
                     try
                     {
-                        _mouseCoords = GetMouseCoordinates(_targetBody);
+                        _mouseCoords = _targetBody.GetMouseCoordinates();
                         _mouse = Event.current.mousePosition;
-                        if (useScansat && _scansatIsCoveredDelegate != null && _mouseCoords != null &&
-                            !_scansatIsCoveredDelegate(_mouseCoords.Longitude, _mouseCoords.Latitude, _targetBody, GetScansatId(_selectedResourceName.Resource.ScansatName)))
+                        if (useScansat && _scanSat.Active() && _mouseCoords != null &&
+                            !_scanSat.IsCovered(_mouseCoords.Longitude, _mouseCoords.Latitude, _targetBody,_selectedResourceName.Resource))
                         {
                             _mouseCoords = null;
                         }
@@ -345,67 +319,21 @@ namespace MapResourceOverlay
                 {
 
                     _toolTipId = 0;
-                    var abundance = ORSPlanetaryResourceMapData.getResourceAvailabilityByRealResourceName(
-                        _targetBody.flightGlobalsIndex, _selectedResourceName.Resource.ResourceName, _mouseCoords.Latitude, _mouseCoords.Longitude)
-                        .getAmount();
-                    string abundanceString = (abundance * 1000000.0).ToString("0.0") + "ppm";
+                    var overlayTooltip = OverlayProvider.TooltipContent(_mouseCoords.Latitude, _mouseCoords.Longitude,
+                        _targetBody, SelectedResourceName);
                     
                     GUI.Window(_toolTipId, new Rect(_mouse.x + 10, _mouse.y + 10, 200f, 55f), i =>
                     {
                         GUI.Label(new Rect(5, 10, 190, 20), "Long: " + _mouseCoords.Longitude.ToString("###.##") + " Lat: " + _mouseCoords.Latitude.ToString("####.##"));
-                        GUI.Label(new Rect(5, 30, 190, 20), "Amount: " + abundanceString);
+                        GUI.Label(new Rect(5, 30, 190, 20), overlayTooltip.Content);
 
                     },
-                    _selectedResourceName.Resource.ResourceName);
+                    overlayTooltip.Title);
                 }
             }
         }
-        public static Coordinates GetMouseCoordinates(CelestialBody targetBody)
-        {
-            Ray mouseRay = PlanetariumCamera.Camera.ScreenPointToRay(Input.mousePosition);
-            mouseRay.origin = ScaledSpace.ScaledToLocalSpace(mouseRay.origin);
-            var bodyToOrigin = mouseRay.origin - targetBody.position;
-            double curRadius = targetBody.pqsController.radiusMax;
-            double lastRadius = 0;
-            int loops = 0;
-            while (loops < 50)
-            {
-                Vector3d relSurfacePosition;
-                if (PQS.LineSphereIntersection(bodyToOrigin, mouseRay.direction, curRadius, out relSurfacePosition))
-                {
-                    var surfacePoint = targetBody.position + relSurfacePosition;
-                    double alt = targetBody.pqsController.GetSurfaceHeight(
-                        QuaternionD.AngleAxis(targetBody.GetLongitude(surfacePoint), Vector3d.down) * QuaternionD.AngleAxis(targetBody.GetLatitude(surfacePoint), Vector3d.forward) * Vector3d.right);
-                    double error = Math.Abs(curRadius - alt);
-                    if (error < (targetBody.pqsController.radiusMax - targetBody.pqsController.radiusMin) / 100)
-                    {
-                        return new Coordinates(targetBody.GetLatitude(surfacePoint), Utilities.ClampDegrees(targetBody.GetLongitude(surfacePoint)));
-                    }
-                    else
-                    {
-                        lastRadius = curRadius;
-                        curRadius = alt;
-                        loops++;
-                    }
-                }
-                else
-                {
-                    if (loops == 0)
-                    {
-                        break;
-                    }
-                    else
-                    { // Went too low, needs to try higher
-                        curRadius = (lastRadius * 9 + curRadius) / 10;
-                        loops++;
-                    }
-                }
-            }
-            return null;
-        }
 
-
-        private void evilmesh(CelestialBody targetBody, ResourceConfig resource)
+        private void CreateMesh(CelestialBody targetBody, ResourceConfig resource)
         {
 
             _mesh.Clear();
@@ -423,7 +351,7 @@ namespace MapResourceOverlay
             float _2pi = _pi * 2f;
 
             vertices[0] = Vector3.up * radius;
-            colors[0] = CalculateColor32At(targetBody, resource, 90, 0);
+            colors[0] = CalculateColor32ForResourceAt(targetBody, resource, 90, 0);
             for (int lat = 0; lat < nbLat; lat++)
             {
                 float a1 = _pi * (lat + 1) / (nbLat + 1);
@@ -437,11 +365,11 @@ namespace MapResourceOverlay
                     float cos2 = Mathf.Cos(a2);
 
                     vertices[lon + lat * (nbLong + 1) + 1] = new Vector3(sin1 * cos2, cos1, sin1 * sin2) * radius;
-                    colors[lon + lat * (nbLong + 1) + 1] = CalculateColor32At(targetBody, resource, 90 - lat, lon);
+                    colors[lon + lat * (nbLong + 1) + 1] = CalculateColor32ForResourceAt(targetBody, resource, 90 - lat, lon);
                 }
             }
             vertices[vertices.Length - 1] = Vector3.up * -radius;
-            colors[vertices.Length - 1] = CalculateColor32At(targetBody, resource, -90, 0);
+            colors[vertices.Length - 1] = CalculateColor32ForResourceAt(targetBody, resource, -90, 0);
             #endregion
 
             #region Normales
@@ -510,34 +438,17 @@ namespace MapResourceOverlay
             _mesh.Optimize();
         }
 
-        private Color32 CalculateColor32At(CelestialBody body, ResourceConfig resource, double latitude,
-            double longitude)
+        private Color32 CalculateColor32At(CelestialBody body, ResourceConfig resource, double latitude,double longitude)
         {
-            if (useScansat && _scansatIsCoveredDelegate != null &&
-                !_scansatIsCoveredDelegate(longitude, latitude, body, GetScansatId(resource.Resource.ScansatName)))
-            {
-                return new Color32(0, 0, 0, 0);
-            }
-            var avail = ORSPlanetaryResourceMapData.getResourceAvailabilityByRealResourceName(body.flightGlobalsIndex, resource.Resource.ResourceName, latitude, longitude);
-            var amount = avail.getAmount();
-            amount = amount * 1000000;
-            if (amount > cutoff)
-            {
-                amount = Mathf.Clamp((float)amount, 0f, 255f);
-                if (!bright)
-                {
-                    var r = amount * (resource.HighColor.r / 255.0);
-                    var g = amount * (resource.HighColor.g / 255.0);
-                    var b = amount * (resource.HighColor.b / 255.0);
-                    return new Color32(Convert.ToByte(r), Convert.ToByte(g), Convert.ToByte(b), resource.HighColor.a);
-                }
-                else
-                {
-                    return new Color32(255, Convert.ToByte(amount), Convert.ToByte(amount), 150);
-                }
-            }
-            return resource.LowColor;
+            return OverlayProvider.CalculateColor32(latitude, longitude, body, resource, useScansat, bright, cutoff);
         }
+
+        private Color32 CalculateColor32ForResourceAt(CelestialBody body, ResourceConfig resource, double latitude,double longitude)
+        {
+            return CalculateColor32At(body, resource, latitude, longitude);
+        }
+
+        #region Save and Load
 
         public override void OnLoad(ConfigNode node)
         {
@@ -561,117 +472,8 @@ namespace MapResourceOverlay
             gloablNode.Save(IOUtils.GetFilePathFor(GetType(), "MapResourceOverlay.cfg"));
 
         }
-    }
 
-    public class GlobalSettings : IConfigNode
-    {
-        public List<ResourceConfig> ColorConfigs { get; set; }
+        #endregion
 
-        public GlobalSettings()
-        {
-            var config = new ResourceConfig
-            {
-                Resource = new Resource("Karbonite"),
-                LowColor = new Color32(0, 0, 0, 0),
-                HighColor = new Color32(255, 0, 0, 200)
-            };
-            var config2 = new ResourceConfig
-            {
-                Resource = new Resource("Ore"),
-                LowColor = new Color32(0, 0, 0, 0),
-                HighColor = new Color32(0, 255, 0, 200)
-            };
-            var config3 = new ResourceConfig
-            {
-                Resource = new Resource("Water", "Aquifer"),
-                LowColor = new Color32(0, 0, 0, 0),
-                HighColor = new Color32(0, 0, 255, 200)
-            };
-            var config4 = new ResourceConfig
-            {
-                Resource = new Resource("Minerals"),
-                LowColor = new Color32(0, 0, 0, 0),
-                HighColor = new Color32(0, 255, 255, 200)
-            };
-            var config5 = new ResourceConfig
-            {
-                Resource = new Resource("Substrate"),
-                LowColor = new Color32(0, 0, 0, 0),
-                HighColor = new Color32(255, 0, 255, 200)
-            };
-            ColorConfigs = new List<ResourceConfig>{config, config2,config3,config4,config5};
-        }
-
-        public void Load(ConfigNode node)
-        {
-            
-            try
-            {
-                var globalSettingsNode = node.GetNode("globalSettings");
-                var colorConfigsNode = globalSettingsNode.GetNode("colorConfigs");
-                ColorConfigs = new List<ResourceConfig>();
-                foreach (ConfigNode value in colorConfigsNode.nodes)
-                {
-                    ColorConfigs.Add(ResourceConfig.Load(value));
-                }
-            }
-            catch (Exception e)
-            {
-                this.Log("Globalconfig broken"+e);
-            }
-        }
-
-        public void Save(ConfigNode node)
-        {
-            
-            var globalSettingsNode = node.AddNode("globalSettings");
-            var colorConfigsNode = globalSettingsNode.AddNode("colorConfigs");
-            foreach (var colorConfig in ColorConfigs)
-            {
-                colorConfig.Save(colorConfigsNode);
-            }
-            
-        }
-        
-    }
-    public class ResourceConfig
-    {
-        public Resource Resource { get; set; }
-        public Color32 LowColor { get; set; }
-        public Color32 HighColor { get; set; }
-        public static ResourceConfig Load(ConfigNode configNode)
-        {
-            var res = new ResourceConfig
-            {
-                Resource = Resource.DeserializeResource(configNode.GetValue("Resource")),
-                LowColor = StringToColor(configNode.GetValue("LowColor")),
-                HighColor = StringToColor(configNode.GetValue("HighColor"))
-            };
-            return res;
-        }
-
-        private static Color StringToColor(string str)
-        {
-            var strArr = str.TrimStart('(').TrimEnd(')').Split(',');
-            byte r, g, b, a;
-            if (strArr.Count() == 4 && Byte.TryParse(strArr[0], out r) && Byte.TryParse(strArr[1], out g) && Byte.TryParse(strArr[2], out b) && Byte.TryParse(strArr[3], out a))
-            {
-                return new Color32(r, g, b, a);
-            }
-            return new Color32();
-        }
-
-        public void Save(ConfigNode node)
-        {
-            var colorConfigNode = node.AddNode(Resource.ResourceName);
-            colorConfigNode.AddValue("Resource", Resource.Serialize());
-            colorConfigNode.AddValue("LowColor", ColorToString(LowColor));
-            colorConfigNode.AddValue("HighColor", ColorToString(HighColor));
-        }
-
-        private string ColorToString(Color32 color)
-        {
-            return "(" + color.r + "," + color.g + "," + color.b + "," + color.a + ")";
-        }
     }
 }
