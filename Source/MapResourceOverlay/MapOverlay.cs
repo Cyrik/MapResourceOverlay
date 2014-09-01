@@ -6,7 +6,6 @@ using System.Text;
 using KSP.IO;
 using Toolbar;
 using UnityEngine;
-using OpenResourceSystem;
 
 namespace MapResourceOverlay
 {
@@ -15,12 +14,9 @@ namespace MapResourceOverlay
         private CelestialBody _body;
         private Mesh _mesh;
 
-        private List<ResourceConfig> _resources;
-
         private IButton _mapOverlayButton;
         private MapOverlayGui _gui;
         private bool _changed;
-        private ResourceConfig _selectedResource;
         private Coordinates _mouseCoords;
         private CelestialBody _targetBody;
 
@@ -35,11 +31,15 @@ namespace MapResourceOverlay
         [KSPField(isPersistant = true)] public bool useScansat;
         [KSPField(isPersistant = true)] public bool show = true;
         [KSPField(isPersistant = true)] public bool showTooltip = true;
-        [KSPField(isPersistant = true)] public string overlayProviderName = "MapResourceOverlay.ResourceOverlayProvider";
-        private GlobalSettings _globalSettings;
+        [KSPField(isPersistant = true)] public string overlayProviderName = "ResourceOverlayProvider";
         private List<IOverlayProvider> _overlayProviders;
+        private IOverlayProvider _overlayProvider;
 
-        public IOverlayProvider OverlayProvider { get; private set; }        
+        public IOverlayProvider OverlayProvider
+        {
+            get { return _overlayProvider; }
+        }
+
         public int Cutoff
         {
             get { return cutoff; }
@@ -52,16 +52,20 @@ namespace MapResourceOverlay
                 }
             }
         }
+
         public bool Bright
         {
             get { return bright; }
-            set {
+            set
+            {
                 if (bright != value)
                 {
-                    bright = value; _changed = true;
+                    bright = value;
+                    _changed = true;
                 }
-                }
+            }
         }
+
         public bool UseScansat
         {
             get { return useScansat; }
@@ -74,6 +78,7 @@ namespace MapResourceOverlay
                 }
             }
         }
+
         public bool Show
         {
             get { return show; }
@@ -100,7 +105,6 @@ namespace MapResourceOverlay
             {
                 _mesh = gameObject.GetComponent<MeshFilter>().mesh;
             }
-            _globalSettings = new GlobalSettings();
             gameObject.AddComponent<MeshRenderer>();
             _scanSat = ScanSatWrapper.Instance;
             base.OnAwake();
@@ -109,11 +113,12 @@ namespace MapResourceOverlay
             _mapOverlayButton.ToolTip = "Map Resource Overlay";
             _mapOverlayButton.Visibility = new GameScenesVisibility(GameScenes.FLIGHT);
             _mapOverlayButton.OnClick += e => ToggleGui();
-            _toolTipId = new System.Random().Next(65536) + Assembly.GetExecutingAssembly().GetName().Name.GetHashCode() + "tooltip".GetHashCode();
+            _toolTipId = new System.Random().Next(65536) + Assembly.GetExecutingAssembly().GetName().Name.GetHashCode() +
+                         "tooltip".GetHashCode();
             GameEvents.onHideUI.Add(MakeInvisible);
             GameEvents.onShowUI.Add(MakeVisible);
             _overlayProviders = new List<IOverlayProvider>();
-            
+
         }
 
         public void ToggleGui()
@@ -125,14 +130,16 @@ namespace MapResourceOverlay
             _gui = new MapOverlayGui(this);
             _gui.SetVisible(true);
         }
+
         public void OnDisable()
         {
             this.Log("disabling MapOverlay");
-            
+
         }
+
         public void OnDestroy()
         {
-            
+
             this.Log("destroying MapResourceOverlay");
             gameObject.transform.parent = _origTransform;
             _mapOverlayButton.Destroy();
@@ -142,10 +149,11 @@ namespace MapResourceOverlay
             }
             Show = false;
             gameObject.renderer.enabled = false;
-            
+
             GameEvents.onHideUI.Remove(MakeInvisible);
             GameEvents.onShowUI.Remove(MakeVisible);
-            
+
+            OverlayProvider.RedrawRequired -= OverlayProviderOnRedrawRequired;
         }
 
         public void MakeVisible()
@@ -162,35 +170,9 @@ namespace MapResourceOverlay
         {
             this.Log("MapResourceOverlay starting");
             gameObject.layer = 10;
-            SelectedResource = Resources[0];
-            var type = typeof(IOverlayProvider);
-            _overlayProviders = AppDomain.CurrentDomain.GetAssemblies()
-                .SelectMany(s => s.GetLoadableTypes().Where(x => type.IsAssignableFrom(x) && !x.IsInterface))
-                .Select(x=> Activator.CreateInstance(x) as IOverlayProvider)
-                .Where(x => x != null)
-                .ToList();
-            var provider = OverlayProviders.FirstOrDefault(x => x.GetType().FullName == overlayProviderName);
-            if (provider == null)
-            {
-                OverlayProvider = new ResourceOverlayProvider();
-            }
-            OverlayProvider = provider;
+
         }
 
-        public List<ResourceConfig> Resources
-        {
-            get { return _resources; }
-        }
-
-        public ResourceConfig SelectedResource
-        {
-            get { return _selectedResource; }
-            set
-            {
-                _selectedResource = value;
-                _changed = true;
-            }
-        }
 
         public bool ShowTooltip
         {
@@ -206,10 +188,22 @@ namespace MapResourceOverlay
 
         public void SetOverlayProvider(IOverlayProvider overlayProvider)
         {
-            OverlayProvider = overlayProvider;
+            if (OverlayProvider != null)
+            {
+                OverlayProvider.Deactivate();
+            }
+            _overlayProvider = overlayProvider;
+            overlayProvider.Activate(_targetBody);
+            overlayProvider.RedrawRequired += OverlayProviderOnRedrawRequired;
             _changed = true;
-            overlayProviderName = overlayProvider.GetType().FullName;
+            overlayProviderName = overlayProvider.GetType().Name;
         }
+
+        private void OverlayProviderOnRedrawRequired(object sender, EventArgs eventArgs)
+        {
+            _changed = true;
+        }
+
         public void Update()
         {
             if (HighLogic.LoadedScene != GameScenes.FLIGHT)
@@ -218,6 +212,7 @@ namespace MapResourceOverlay
             }
             else UpdateMapView();
         }
+
         private void UpdateMapView()
         {
             if (!show || MapView.MapCamera == null)
@@ -231,45 +226,52 @@ namespace MapResourceOverlay
 
                 if (_targetBody != null && (_targetBody != _body || _changed))
                 {
-                    this.Log("Drawing at " + _targetBody.name + " because " + (_targetBody != _body ? "body changed." : "something else changed."));
+                    this.Log("Drawing at " + _targetBody.name + " because " +
+                             (_targetBody != _body ? "body changed." : "something else changed."));
                     _changed = false;
                     var dir = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
                     var radii = System.IO.File.ReadAllLines(dir + "/Assets/Radii.cfg");
                     var radius = float.Parse(radii.First(x => x.StartsWith(_targetBody.GetName())).Split('=')[1]);
                     _body = _targetBody;
-                    CreateMesh(_targetBody, SelectedResource);
-                    gameObject.renderer.material = new Material(System.IO.File.ReadAllText(dir + "/Assets/MapOverlayShader.txt"));
+                    CreateMesh(_targetBody);
+                    gameObject.renderer.material =
+                        new Material(System.IO.File.ReadAllText(dir + "/Assets/MapOverlayShader.txt"));
                     gameObject.renderer.enabled = true;
                     gameObject.renderer.castShadows = false;
-                    gameObject.transform.parent = ScaledSpace.Instance.scaledSpaceTransforms.FirstOrDefault(t => t.name == _body.bodyName);
+                    gameObject.transform.parent =
+                        ScaledSpace.Instance.scaledSpaceTransforms.FirstOrDefault(t => t.name == _body.bodyName);
                     gameObject.layer = 10;
-                    gameObject.transform.localScale = Vector3.one * 1000f * radius;
+                    gameObject.transform.localScale = Vector3.one*1000f*radius;
                     gameObject.transform.localPosition = (Vector3.zero);
                     gameObject.transform.localRotation = (Quaternion.identity);
                 }
                 if (_targetBody != null && useScansat && _scanSat.Active())
                 {
-                    RecalculateColors(_targetBody, SelectedResource);
+                    RecalculateColors(_targetBody);
                 }
             }
         }
 
-        private void RecalculateColors(CelestialBody targetBody, ResourceConfig resource)
+        private void RecalculateColors(CelestialBody targetBody)
         {
             const int nbLong = 360;
+
             #region Vertices
+
             var colors = _mesh.colors32;
 
-            colors[0] = CalculateColor32ForResourceAt(targetBody, resource, 90, 0);
+            colors[0] = CalculateColor32ForResourceAt(targetBody, 90, 0);
             for (int lat = _currentLat; lat < _currentLat + 2; lat++)
             {
                 for (int lon = 0; lon <= nbLong; lon++)
                 {
-                    colors[lon + lat * (nbLong + 1) + 1] = CalculateColor32ForResourceAt(targetBody, resource, 90 - lat, lon);
+                    colors[lon + lat*(nbLong + 1) + 1] = CalculateColor32ForResourceAt(targetBody, 90 - lat, lon);
                 }
             }
-            colors[colors.Length - 1] = CalculateColor32ForResourceAt(targetBody, resource, -90, 0);
+            colors[colors.Length - 1] = CalculateColor32ForResourceAt(targetBody, -90, 0);
+
             #endregion
+
             _currentLat += 2;
             if (_currentLat >= 180)
             {
@@ -292,7 +294,8 @@ namespace MapResourceOverlay
                     // ignore the error and assume the pause menu is not open
                 }
             }
-            if (_targetBody != FlightGlobals.ActiveVessel.mainBody || paused || !showTooltip) //dont show tooltips on different bodys or ORS lags
+            if (_targetBody != FlightGlobals.ActiveVessel.mainBody || paused || !showTooltip)
+                //dont show tooltips on different bodys or ORS lags
             {
                 return;
             }
@@ -305,7 +308,7 @@ namespace MapResourceOverlay
                         _mouseCoords = _targetBody.GetMouseCoordinates();
                         _mouse = Event.current.mousePosition;
                         if (useScansat && _scanSat.Active() && _mouseCoords != null &&
-                            !OverlayProvider.IsCoveredAt(_mouseCoords.Longitude, _mouseCoords.Latitude, _targetBody,_selectedResource))
+                            !OverlayProvider.IsCoveredAt(_mouseCoords.Longitude, _mouseCoords.Latitude, _targetBody))
                         {
                             _mouseCoords = null;
                         }
@@ -320,24 +323,28 @@ namespace MapResourceOverlay
 
                     _toolTipId = 0;
                     var overlayTooltip = OverlayProvider.TooltipContent(_mouseCoords.Latitude, _mouseCoords.Longitude,
-                        _targetBody, SelectedResource);
-                    if (Math.Abs(overlayTooltip.Size.x) < 0.01  && Math.Abs(overlayTooltip.Size.y) < 0.01)
+                        _targetBody);
+                    if (Math.Abs(overlayTooltip.Size.x) < 0.01 && Math.Abs(overlayTooltip.Size.y) < 0.01)
                     {
-                        overlayTooltip.Size = new Vector2(200f,55f);
+                        overlayTooltip.Size = new Vector2(200f, 55f);
                     }
                     var style = new GUIStyle(GUI.skin.label) {wordWrap = true};
-                    GUI.Window(_toolTipId, new Rect(_mouse.x + 10, _mouse.y + 10, overlayTooltip.Size.x, overlayTooltip.Size.y), i =>
-                    {
-                        GUI.Label(new Rect(5, 10, 190, 20), "Long: " + _mouseCoords.Longitude.ToString("###.##") + " Lat: " + _mouseCoords.Latitude.ToString("####.##"));
-                        GUI.Label(new Rect(5, 30, overlayTooltip.Size.x - 10, overlayTooltip.Size.y - 35), overlayTooltip.Content,style);
+                    GUI.Window(_toolTipId,
+                        new Rect(_mouse.x + 10, _mouse.y + 10, overlayTooltip.Size.x, overlayTooltip.Size.y), i =>
+                        {
+                            GUI.Label(new Rect(5, 10, 190, 20),
+                                "Long: " + _mouseCoords.Longitude.ToString("###.##") + " Lat: " +
+                                _mouseCoords.Latitude.ToString("####.##"));
+                            GUI.Label(new Rect(5, 30, overlayTooltip.Size.x - 10, overlayTooltip.Size.y - 35),
+                                overlayTooltip.Content, style);
 
-                    },
-                    overlayTooltip.Title);
+                        },
+                        overlayTooltip.Title);
                 }
             }
         }
 
-        private void CreateMesh(CelestialBody targetBody, ResourceConfig resource)
+        private void CreateMesh(CelestialBody targetBody)
         {
 
             _mesh.Clear();
@@ -349,52 +356,59 @@ namespace MapResourceOverlay
             const int nbLat = 180;
 
             #region Vertices
-            Vector3[] vertices = new Vector3[(nbLong + 1) * nbLat + 2];
-            var colors = new Color32[(nbLong + 1) * nbLat + 2];
-            float _pi = Mathf.PI;
-            float _2pi = _pi * 2f;
 
-            vertices[0] = Vector3.up * radius;
-            colors[0] = CalculateColor32ForResourceAt(targetBody, resource, 90, 0);
+            Vector3[] vertices = new Vector3[(nbLong + 1)*nbLat + 2];
+            var colors = new Color32[(nbLong + 1)*nbLat + 2];
+            float _pi = Mathf.PI;
+            float _2pi = _pi*2f;
+
+            vertices[0] = Vector3.up*radius;
+            colors[0] = CalculateColor32ForResourceAt(targetBody, 90, 0);
             for (int lat = 0; lat < nbLat; lat++)
             {
-                float a1 = _pi * (lat + 1) / (nbLat + 1);
+                float a1 = _pi*(lat + 1)/(nbLat + 1);
                 float sin1 = Mathf.Sin(a1);
                 float cos1 = Mathf.Cos(a1);
 
                 for (int lon = 0; lon <= nbLong; lon++)
                 {
-                    float a2 = _2pi * (lon == nbLong ? 0 : lon) / nbLong;
+                    float a2 = _2pi*(lon == nbLong ? 0 : lon)/nbLong;
                     float sin2 = Mathf.Sin(a2);
                     float cos2 = Mathf.Cos(a2);
 
-                    vertices[lon + lat * (nbLong + 1) + 1] = new Vector3(sin1 * cos2, cos1, sin1 * sin2) * radius;
-                    colors[lon + lat * (nbLong + 1) + 1] = CalculateColor32ForResourceAt(targetBody, resource, 90 - lat, lon);
+                    vertices[lon + lat*(nbLong + 1) + 1] = new Vector3(sin1*cos2, cos1, sin1*sin2)*radius;
+                    colors[lon + lat*(nbLong + 1) + 1] = CalculateColor32ForResourceAt(targetBody, 90 - lat, lon);
                 }
             }
-            vertices[vertices.Length - 1] = Vector3.up * -radius;
-            colors[vertices.Length - 1] = CalculateColor32ForResourceAt(targetBody, resource, -90, 0);
+            vertices[vertices.Length - 1] = Vector3.up*-radius;
+            colors[vertices.Length - 1] = CalculateColor32ForResourceAt(targetBody, -90, 0);
+
             #endregion
 
             #region Normales
+
             Vector3[] normales = new Vector3[vertices.Length];
             for (int n = 0; n < vertices.Length; n++)
                 normales[n] = vertices[n].normalized;
+
             #endregion
 
             #region UVs
+
             Vector2[] uvs = new Vector2[vertices.Length];
             uvs[0] = Vector2.up;
             uvs[uvs.Length - 1] = Vector2.zero;
             for (int lat = 0; lat < nbLat; lat++)
                 for (int lon = 0; lon <= nbLong; lon++)
-                    uvs[lon + lat * (nbLong + 1) + 1] = new Vector2((float)lon / nbLong, 1f - (float)(lat + 1) / (nbLat + 1));
+                    uvs[lon + lat*(nbLong + 1) + 1] = new Vector2((float) lon/nbLong, 1f - (float) (lat + 1)/(nbLat + 1));
+
             #endregion
 
             #region Triangles
+
             int nbFaces = vertices.Length;
-            int nbTriangles = nbFaces * 2;
-            int nbIndexes = nbTriangles * 3;
+            int nbTriangles = nbFaces*2;
+            int nbIndexes = nbTriangles*3;
             int[] triangles = new int[nbIndexes];
 
             //Top Cap
@@ -411,7 +425,7 @@ namespace MapResourceOverlay
             {
                 for (int lon = 0; lon < nbLong; lon++)
                 {
-                    int current = lon + lat * (nbLong + 1) + 1;
+                    int current = lon + lat*(nbLong + 1) + 1;
                     int next = current + nbLong + 1;
 
                     triangles[i++] = next + 1;
@@ -431,6 +445,7 @@ namespace MapResourceOverlay
                 triangles[i++] = vertices.Length - (lon + 2) - 1;
                 triangles[i++] = vertices.Length - (lon + 1) - 1;
             }
+
             #endregion
 
             _mesh.vertices = vertices;
@@ -442,14 +457,14 @@ namespace MapResourceOverlay
             _mesh.Optimize();
         }
 
-        private Color32 CalculateColor32At(CelestialBody body, ResourceConfig resource, double latitude,double longitude)
+        private Color32 CalculateColor32At(CelestialBody body, double latitude, double longitude)
         {
-            return OverlayProvider.CalculateColor32(latitude, longitude, body, resource, useScansat, bright, cutoff);
+            return OverlayProvider.CalculateColor32(latitude, longitude, body, useScansat, bright, cutoff);
         }
 
-        private Color32 CalculateColor32ForResourceAt(CelestialBody body, ResourceConfig resource, double latitude,double longitude)
+        private Color32 CalculateColor32ForResourceAt(CelestialBody body, double latitude, double longitude)
         {
-            return CalculateColor32At(body, resource, latitude, longitude);
+            return CalculateColor32At(body, latitude, longitude);
         }
 
         #region Save and Load
@@ -458,26 +473,89 @@ namespace MapResourceOverlay
         {
             this.Log("loading");
             base.OnLoad(node);
-            var globalConfigFilename = IOUtils.GetFilePathFor(GetType(), "MapResourceOverlay.cfg");
-            if (File.Exists<MapOverlay>(globalConfigFilename))
+
+            var type = typeof (IOverlayProvider);
+            _overlayProviders = AppDomain.CurrentDomain.GetAssemblies()
+                .SelectMany(s => s.GetLoadableTypes().Where(x => type.IsAssignableFrom(x) && !x.IsInterface && !x.IsAbstract))
+                .Select(x =>
+                {
+                    try
+                    {
+                        return Activator.CreateInstance(x) as IOverlayProvider;
+                    }
+                    catch (Exception)
+                    {
+                        this.Log("Couldnt instantiate: "+x.FullName);
+                        return null;
+                    }
+                })
+                .Where(x => x != null)
+                .ToList();
+
+            this.Log("from " + System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "/Base.cfg");
+            LoadConfig(System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "/Base.cfg");
+            this.Log("from" + IOUtils.GetFilePathFor(GetType(), "MapResourceOverlay.cfg"));
+            var globalSavedConfigFilename = IOUtils.GetFilePathFor(GetType(), "MapResourceOverlay.cfg");
+            LoadConfig(globalSavedConfigFilename);
+            _overlayProviders = _overlayProviders.Where(x => x.CanActivate()).ToList();
+            var provider = OverlayProviders.FirstOrDefault(x => x.GetType().Name == overlayProviderName);
+            if (provider == null)
             {
-                var globalNode = ConfigNode.Load(globalConfigFilename);
-                _globalSettings.Load(globalNode);
+                provider = new BiomeOverlayProvider();
             }
-            _resources = _globalSettings.ColorConfigs;
+            SetOverlayProvider(provider);
+        }
+
+
+        private void LoadConfig(string filename)
+        {
+            try
+            {
+                if (System.IO.File.Exists(filename))
+                {
+                    var baseNode = ConfigNode.Load(filename);
+                    if (baseNode.HasNode("globalNode"))
+                    {
+                        var globalNode = baseNode.GetNode("globalNode");
+                        foreach (var overlayProvider in OverlayProviders)
+                        {
+                            try
+                            {
+                                overlayProvider.Load(globalNode);
+                            }
+                            catch (Exception e)
+                            {
+                                this.Log("OverlayProvider " + overlayProvider.GetType().FullName + " couldnt load " + e);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                this.Log("Could not load "+filename+".\n"+e);
+            }
         }
 
         public override void OnSave(ConfigNode node)
         {
             this.Log("saving");
             base.OnSave(node);
-            var gloablNode = new ConfigNode();
-            _globalSettings.Save(gloablNode);
-            gloablNode.Save(IOUtils.GetFilePathFor(GetType(), "MapResourceOverlay.cfg"));
-
+            var baseNode = new ConfigNode();
+            
+            var globalNode = baseNode.AddNode("globalNode");
+            foreach (var overlayProvider in OverlayProviders)
+            {
+                overlayProvider.Save(globalNode);
+            }
+            baseNode.Save(IOUtils.GetFilePathFor(GetType(), "MapResourceOverlay.cfg"));
         }
 
         #endregion
 
+        public void Reload()
+        {
+            _changed = true;
+        }
     }
 }

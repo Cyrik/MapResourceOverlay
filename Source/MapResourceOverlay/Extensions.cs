@@ -14,7 +14,7 @@ namespace MapResourceOverlay
     {
         public static void Log(this Object obj, string msg)
         {
-            Debug.Log("[MRO][" + (new StackTrace()).GetFrame(1).GetMethod().Name + "] " + msg);
+            Debug.Log("[MRO]["+obj.GetType()+"][" + (new StackTrace()).GetFrame(1).GetMethod().Name + "] " + msg);
         }
 
         public static CelestialBody GetTargetBody(this MapObject target)

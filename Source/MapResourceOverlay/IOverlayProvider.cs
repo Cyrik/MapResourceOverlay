@@ -2,17 +2,83 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using OpenResourceSystem;
 using UnityEngine;
 
 namespace MapResourceOverlay
 {
-    public interface IOverlayProvider
+    public interface IOverlayProvider :IConfigNode
     {
-        Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, ResourceConfig config, bool useScansat, bool bright, double cutoff);
-        OverlayTooltip TooltipContent(double latitude, double longitude, CelestialBody body, ResourceConfig config);
-        bool IsCoveredAt(double latitude, double longitude, CelestialBody body, ResourceConfig config);
+        Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright, double cutoff);
+        OverlayTooltip TooltipContent(double latitude, double longitude, CelestialBody body);
+        bool IsCoveredAt(double latitude, double longitude, CelestialBody body);
         string GuiName { get; }
+        void Activate(CelestialBody body);
+        void Deactivate();
+        event EventHandler RedrawRequired;
+        void DrawGui(MapOverlayGui gui);
+        bool CanActivate();
+    }
+
+    public abstract class OverlayProviderBase : IOverlayProvider
+    {
+        protected CelestialBody _body;
+
+        public virtual void Load(ConfigNode node)
+        {
+            
+        }
+
+        public virtual void Save(ConfigNode node)
+        {
+            
+        }
+
+        public virtual Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright,
+            double cutoff)
+        {
+            return new Color32();
+        }
+
+        public virtual OverlayTooltip TooltipContent(double latitude, double longitude, CelestialBody body)
+        {
+            return new OverlayTooltip("",new GUIContent());
+        }
+
+        public virtual bool IsCoveredAt(double latitude, double longitude, CelestialBody body)
+        {
+            return true;
+        }
+
+        protected virtual void RequiresRedraw()
+        {
+            if (RedrawRequired != null)
+            {
+                RedrawRequired(this, null);
+            }
+        }
+
+        public virtual string GuiName { get; private set; }
+        public virtual void Activate(CelestialBody body)
+        {
+            _body = body;
+            RequiresRedraw();
+        }
+
+        public virtual void Deactivate()
+        {
+            _body = null;
+        }
+
+        public event EventHandler RedrawRequired;
+        public virtual void DrawGui(MapOverlayGui gui)
+        {
+            
+        }
+
+        public virtual bool CanActivate()
+        {
+            return true;
+        }
     }
 
     public class OverlayTooltip
@@ -29,39 +95,72 @@ namespace MapResourceOverlay
         public Vector2 Size { get; set; }
     }
 
-    class HightmapProvider : IOverlayProvider
+    class HeightmapProvider : OverlayProviderBase
     {
-        public Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, ResourceConfig config, bool useScansat,
+        public byte Alpha { get; set; }
+
+        public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat,
             bool bright, double cutoff)
         {
-            if (useScansat && ScanSatWrapper.Instance.Active() && !IsCoveredAt(latitude, longitude, body, config))
+            if (useScansat && ScanSatWrapper.Instance.Active() && !IsCoveredAt(latitude, longitude, body))
             {
                 return new Color32(0, 0, 0, 0);
             }
             var scanSat = ScanSatWrapper.Instance;
-            var dict = new Dictionary<string, int>();
-            return scanSat.GetElevationColor32(body, longitude, latitude);
+            var color = scanSat.GetElevationColor32(body, longitude, latitude);
+            color.a = Alpha;
+            return color;
         }
 
-        public OverlayTooltip TooltipContent(double latitude, double longitude, CelestialBody body, ResourceConfig config)
+        public override OverlayTooltip TooltipContent(double latitude, double longitude, CelestialBody body)
         {
             return new OverlayTooltip("",new GUIContent("Height: "+ScanSatWrapper.GetElevation(body, longitude, latitude)+"m"));
         }
 
-        public bool IsCoveredAt(double latitude, double longitude, CelestialBody body, ResourceConfig config)
+        public override bool IsCoveredAt(double latitude, double longitude, CelestialBody body)
         {
             return ScanSatWrapper.Instance.IsCovered(longitude, latitude, body, "AltimetryHiRes");
         }
 
-        public string GuiName { get { return "Hight Map"; } }
+        public override string GuiName { get { return "Height Map"; } }
+
+        public override void Load(ConfigNode node)
+        {
+            try
+            {
+                if (!node.HasNode("Heightmap"))
+                {
+                    Alpha = 100;
+                    return;
+                }
+                var myNode = node.GetNode("Heightmap");
+                byte result;
+                if (!Byte.TryParse(myNode.GetValue("Alpha"),out result))
+                {
+                    result = 100;
+                }
+                Alpha = result;
+            }
+            catch (Exception e)
+            {
+                this.Log("Couldnt Load " + GetType().FullName + " " + e);
+            }
+        }
+
+        public override void Save(ConfigNode node)
+        {
+            var myNode = node.AddNode("Heightmap");
+            myNode.AddValue("Alpha",Alpha);
+        }
     }
 
-    class BiomeOverlayProvider : IOverlayProvider
+    class BiomeOverlayProvider : OverlayProviderBase
     {
-        public Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, ResourceConfig config, bool useScansat,
+        public byte Alpha { get; set; }
+        public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat,
             bool bright, double cutoff)
         {
-            if (useScansat && ScanSatWrapper.Instance.Active() && !IsCoveredAt(latitude, longitude, body, config))
+            if (useScansat && ScanSatWrapper.Instance.Active() && !IsCoveredAt(latitude, longitude, body))
             {
                 return new Color32(0,0,0,0);
             }
@@ -69,72 +168,54 @@ namespace MapResourceOverlay
             var biome = scanSat.GetBiome(longitude, latitude, body);
             if (biome != null)
             {
-                var color = biome.mapColor;
-                color.a = 0.30f;
+                Color32 color = biome.mapColor;
+                color.a = Alpha;
                 return color;
             }
             return new Color32(0, 0, 0, 0);
         }
 
-        public OverlayTooltip TooltipContent(double latitude, double longitude, CelestialBody body, ResourceConfig config)
+        public override OverlayTooltip TooltipContent(double latitude, double longitude, CelestialBody body)
         {
             var scanSat = ScanSatWrapper.Instance;
             var biome = scanSat.GetBiome(longitude, latitude, body);
             return new OverlayTooltip("",new GUIContent("Biome: "+biome.name));
         }
 
-        public bool IsCoveredAt(double latitude, double longitude, CelestialBody body, ResourceConfig config)
+        public override bool IsCoveredAt(double latitude, double longitude, CelestialBody body)
         {
             return ScanSatWrapper.Instance.IsCovered(longitude, latitude, body, "Biome");
         }
 
-        public string GuiName { get { return "Biome Map"; } }
-    }
+        public override string GuiName { get { return "Biome Map"; } }
 
-    public class ResourceOverlayProvider : IOverlayProvider
-    {
-        public Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, ResourceConfig resource, bool useScansat, bool bright, double cutoff)
+        public override void Load(ConfigNode node)
         {
-            var scanSat = ScanSatWrapper.Instance;
-            if (useScansat && scanSat.Active() && !scanSat.IsCovered(longitude, latitude, body, resource.Resource))
+            try
             {
-                return new Color32(0, 0, 0, 0);
+                if (!node.HasNode("Biomemap"))
+                {
+                    Alpha = 100;
+                    return;
+                }
+                var myNode = node.GetNode("Biomemap");
+                byte result;
+                if (!Byte.TryParse(myNode.GetValue("Alpha"), out result))
+                {
+                    result = 100;
+                }
+                Alpha = result;
             }
-            var avail = ORSPlanetaryResourceMapData.getResourceAvailabilityByRealResourceName(body.flightGlobalsIndex, resource.Resource.ResourceName, latitude, longitude);
-            var amount = avail.getAmount();
-            amount = amount * 1000000;
-            if (amount > cutoff)
+            catch (Exception e)
             {
-                amount = Mathf.Clamp((float)amount, 0f, 255f);
-                if (!bright)
-                {
-                    var r = amount * (resource.HighColor.r / 255.0);
-                    var g = amount * (resource.HighColor.g / 255.0);
-                    var b = amount * (resource.HighColor.b / 255.0);
-                    return new Color32(Convert.ToByte(r), Convert.ToByte(g), Convert.ToByte(b), resource.HighColor.a);
-                }
-                else
-                {
-                    return new Color32(255, Convert.ToByte(amount), Convert.ToByte(amount), 150);
-                }
+                this.Log("Couldnt Load "+GetType().FullName+ " "+e);
             }
-            return resource.LowColor;
         }
 
-        public OverlayTooltip TooltipContent(double latitude, double longitude, CelestialBody body, ResourceConfig config)
+        public override void Save(ConfigNode node)
         {
-            var abundance = ORSPlanetaryResourceMapData.getResourceAvailabilityByRealResourceName(
-                        body.flightGlobalsIndex, config.Resource.ResourceName, latitude, longitude)
-                        .getAmount();
-            return new OverlayTooltip(config.Resource.ResourceName,new GUIContent("Amount: "+(abundance * 1000000.0).ToString("0.0") + "ppm"));
+            var myNode = node.AddNode("Biomemap");
+            myNode.AddValue("Alpha", Alpha);
         }
-
-        public bool IsCoveredAt(double latitude, double longitude, CelestialBody body, ResourceConfig config)
-        {
-            return ScanSatWrapper.Instance.IsCovered(longitude, latitude, body, config.Resource);
-        }
-
-        public string GuiName { get { return "Resource Map"; } }
-
     }
 }

@@ -59,9 +59,7 @@ namespace MapResourceOverlay
                 {
                     _scansatIsCoveredDelegate = (IsCoveredDelegate)Delegate.CreateDelegate(typeof(IsCoveredDelegate), method);
                 }
-                var tester = scandata.GetNestedType("SCANtype");
-                _scansatEnum = tester;
-
+                _scansatEnum = scandata.GetNestedType("SCANtype");
             }
         }
 

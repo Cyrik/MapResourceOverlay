@@ -31,18 +31,21 @@ namespace MapResourceOverlay
                     Model.Show = true;
                 }
             }
-            if (Model.UseScansat)
+            if (ScanSatWrapper.Instance.Active())
             {
-                if (GUILayout.Button("Disable Scansat"))
+                if (Model.UseScansat)
                 {
-                    Model.UseScansat = false;
+                    if (GUILayout.Button("Disable Scansat"))
+                    {
+                        Model.UseScansat = false;
+                    }
                 }
-            }
-            else
-            {
-                if (GUILayout.Button("Enable Scansat"))
+                else
                 {
-                    Model.UseScansat = true;
+                    if (GUILayout.Button("Enable Scansat"))
+                    {
+                        Model.UseScansat = true;
+                    }
                 }
             }
             if (Model.ShowTooltip)
@@ -77,17 +80,7 @@ namespace MapResourceOverlay
             
             GUILayout.EndHorizontal();
             
-            if (Model.OverlayProvider.GetType() == typeof (ResourceOverlayProvider))
-            {
-                GUILayout.Box("");
-                foreach (var res in Model.Resources)
-                {
-                    if (GUILayout.Button(res.Resource.ResourceName))
-                    {
-                        Model.SelectedResource = res;
-                    }
-                }
-            }
+            
             GUILayout.Box("Overlay types:");
             foreach (var overlayProvider in Model.OverlayProviders)
             {
@@ -95,6 +88,24 @@ namespace MapResourceOverlay
                 {
                     Model.SetOverlayProvider(overlayProvider);
                 }
+            }
+            GUILayout.Box("Active Type Specific:");
+            if (Model.OverlayProvider.GetType() == typeof(ResourceOverlayProvider))
+            {
+                var provider = (ResourceOverlayProvider)Model.OverlayProvider;
+                
+                foreach (var res in provider.ColorConfigs)
+                {
+                    if (GUILayout.Button(res.Resource.ResourceName))
+                    {
+                        provider.ActiveResource = res;
+                        Model.Reload();
+                    }
+                }
+            }
+            else
+            {
+                Model.OverlayProvider.DrawGui(this);
             }
             GUILayout.EndVertical();
         }
