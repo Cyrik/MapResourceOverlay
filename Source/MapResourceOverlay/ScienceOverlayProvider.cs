@@ -23,9 +23,7 @@ namespace MapResourceOverlay
                 return new Color32(0,0,0,0);
             }
             var biome = ScanSatWrapper.Instance.GetBiome(longitude, latitude, body);
-            var experiments = ResearchAndDevelopment.GetExperimentIDs().Select(ResearchAndDevelopment.GetExperiment)
-                        .Where(x => x.biomeMask != 0 && x.situationMask != 0)
-                        .Where(x => x.IsAvailableWhile(_situation,body))
+            var experiments = _experiments
                         .GroupBy(x => x.BiomeIsRelevantWhile(_situation))
                         .SelectMany(x => x.Select(y => new{exp = y, subj = ResearchAndDevelopment.GetExperimentSubject(y,_situation,body,x.Key ? biome.name:"")}))
                         .Select(x => ResearchAndDevelopment.GetScienceValue(x.exp.dataScale * x.exp.baseValue,x.subj))

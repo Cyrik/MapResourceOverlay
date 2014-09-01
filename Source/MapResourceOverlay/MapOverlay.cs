@@ -4,7 +4,6 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using KSP.IO;
-using Toolbar;
 using UnityEngine;
 
 namespace MapResourceOverlay
@@ -34,6 +33,7 @@ namespace MapResourceOverlay
         [KSPField(isPersistant = true)] public string overlayProviderName = "ResourceOverlayProvider";
         private List<IOverlayProvider> _overlayProviders;
         private IOverlayProvider _overlayProvider;
+        private Texture2D _texture;
 
         public IOverlayProvider OverlayProvider
         {
@@ -108,11 +108,24 @@ namespace MapResourceOverlay
             gameObject.AddComponent<MeshRenderer>();
             _scanSat = ScanSatWrapper.Instance;
             base.OnAwake();
-            _mapOverlayButton = ToolbarManager.Instance.add("MapResourceOverlay", "ResourceOverlay");
-            _mapOverlayButton.TexturePath = "MapResourceOverlay/Assets/MapOverlayIcon";
-            _mapOverlayButton.ToolTip = "Map Resource Overlay";
-            _mapOverlayButton.Visibility = new GameScenesVisibility(GameScenes.FLIGHT);
-            _mapOverlayButton.OnClick += e => ToggleGui();
+
+            if (ToolbarManager.ToolbarAvailable)
+            {
+                _mapOverlayButton = ToolbarManager.Instance.add("MapResourceOverlay", "ResourceOverlay");
+                _mapOverlayButton.TexturePath = "MapResourceOverlay/Assets/MapOverlayIcon.small";
+                _mapOverlayButton.ToolTip = "Map Resource Overlay";
+                _mapOverlayButton.Visibility = new GameScenesVisibility(GameScenes.FLIGHT);
+                _mapOverlayButton.OnClick += e => ToggleGui();
+            }
+            else
+            {
+                _texture = new Texture2D(38, 38);
+                _texture.LoadImage(
+                    System.IO.File.ReadAllBytes(System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "/Assets/MapOverlayIcon.enabled.png"));
+                ApplicationLauncher.Instance.AddModApplication(ToggleGui, ToggleGui,
+                    null, null, null, null, ApplicationLauncher.AppScenes.FLIGHT | ApplicationLauncher.AppScenes.MAPVIEW,
+                    _texture);
+            }
             _toolTipId = new System.Random().Next(65536) + Assembly.GetExecutingAssembly().GetName().Name.GetHashCode() +
                          "tooltip".GetHashCode();
             GameEvents.onHideUI.Add(MakeInvisible);
@@ -170,7 +183,7 @@ namespace MapResourceOverlay
         {
             this.Log("MapResourceOverlay starting");
             gameObject.layer = 10;
-
+            
         }
 
 
