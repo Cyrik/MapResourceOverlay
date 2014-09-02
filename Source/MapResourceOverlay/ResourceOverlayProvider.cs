@@ -23,6 +23,7 @@ namespace MapResourceOverlay
         private GetResourceAvailabilityByRealResourceNameDelegate _getResourceAvailabilityByRealResourceName;
         private bool _logaritmic;
         private bool _coloredScale;
+        private bool _exponential;
 
         public ResourceConfig ActiveResource
         {
@@ -76,18 +77,38 @@ namespace MapResourceOverlay
             var amount = (double)_getAmount(avail) * 1000000;
             if (amount > cutoff)
             {
-                if (Logaritmic)
+                if (Exponential)
                 {
-                    amount = ((Math.Log(amount, 2) - (Math.Log(cutoff, 2))) * 255) / ((Math.Log(_displayMax, 2) - (Math.Log(cutoff, 2))));
+                    amount = ((Math.Pow(amount, 2) - (Math.Pow(cutoff, 2))) *255) / ((Math.Pow(_displayMax, 2) - (Math.Pow(cutoff, 2))));
+                    if (ColoredScale)
+                    {
+                        var color = ScanSatWrapper.heightToColor((float)amount, 0, 255);
+                        color.a = ActiveResource.HighColor.a;
+                        return color;
+                    }
                 }
-                else if (_coloredScale)
+                else if (Logaritmic)
                 {
-                    var color = ScanSatWrapper.heightToColor((float) amount, cutoff, (float) _displayMax);
-                    color.a = ActiveResource.HighColor.a;
-                    return color;
+                    if (cutoff < 1)
+                    {
+                        cutoff = 1;
+                    }
+                    amount = ((Math.Log(amount, 2) - (Math.Log(cutoff, 2)))*255) / ((Math.Log(_displayMax, 2) - (Math.Log(cutoff, 2))));
+                    if (ColoredScale)
+                    {
+                        var color = ScanSatWrapper.heightToColor((float)amount*255, 0, 255f);
+                        color.a = ActiveResource.HighColor.a;
+                        return color;
+                    }
                 }
                 else
                 {
+                    if (ColoredScale)
+                    {
+                        var color = ScanSatWrapper.heightToColor((float)amount, cutoff, (float)_displayMax);
+                        color.a = ActiveResource.HighColor.a;
+                        return color;
+                    }
                     amount =((amount - cutoff) * 255) / (_displayMax - cutoff);
                 }
                 amount = Mathf.Clamp((float) amount, 0f, 255f);
@@ -116,6 +137,10 @@ namespace MapResourceOverlay
                 {
                     _logaritmic = value;
                     RequiresRedraw();
+                    if (_logaritmic)
+                    {
+                        _exponential = false;
+                    }
                 }
             }
         }
@@ -266,16 +291,41 @@ namespace MapResourceOverlay
             base.DrawGui(gui);
             GUILayout.BeginVertical();
             Logaritmic = GUILayout.Toggle(Logaritmic, "Logarithmic Scale");
+            Exponential = GUILayout.Toggle(Exponential, "Exponential Scale");
             ColoredScale = GUILayout.Toggle(ColoredScale, "Colored Scale");
             GUILayout.Space(15);
             foreach (var res in ColorConfigs)
             {
-                if (GUILayout.Button(res.Resource.ResourceName))
+                var style = new GUIStyle(GUI.skin.button);
+                if (res == ActiveResource)
+                {
+                    style.normal.textColor = Color.yellow;
+                }
+                if (GUILayout.Button(res.Resource.ResourceName,style))
                 {
                     ActiveResource = res;
                 }
             }
             GUILayout.EndVertical();
+        }
+
+        public bool Exponential
+        {
+            get { return _exponential; }
+            set
+            {
+                if (_exponential != value)
+                {
+                    _exponential = value; 
+                    RequiresRedraw();
+                    if (_exponential)
+                    {
+                        _logaritmic = false;
+                    }
+                }
+                
+                
+            }
         }
 
         public bool ColoredScale

@@ -1,4 +1,6 @@
-﻿namespace MapResourceOverlay
+﻿using System;
+
+namespace MapResourceOverlay
 {
     public class Coordinates
     {
@@ -19,6 +21,18 @@
         public double Longitude
         {
             get { return _longitude; }
+        }
+
+        public double Distance(Coordinates other)
+        {
+            var distLong = Longitude - other.Longitude;
+            var distLat = Latitude - other.Latitude;
+            return Math.Sqrt(Math.Pow(distLong, 2) + Math.Pow(distLat, 2));
+        }
+
+        public override string ToString()
+        {
+            return "Latitude " + Latitude + ", Longitude" + Longitude;
         }
     }
 }

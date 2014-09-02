@@ -84,7 +84,12 @@ namespace MapResourceOverlay
             GUILayout.Box("Overlay types:");
             foreach (var overlayProvider in Model.OverlayProviders)
             {
-                if (GUILayout.Button(overlayProvider.GuiName))
+                var style = new GUIStyle(GUI.skin.button);
+                if (overlayProvider == Model.OverlayProvider)
+                {
+                    style.normal.textColor = Color.yellow;
+                }
+                if (GUILayout.Button(overlayProvider.GuiName,style))
                 {
                     Model.SetOverlayProvider(overlayProvider);
                 }

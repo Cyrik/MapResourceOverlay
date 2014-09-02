@@ -156,7 +156,12 @@ namespace MapResourceOverlay
             GUILayout.BeginVertical();
             foreach (var situation in Enum.GetValues(typeof(ExperimentSituations)).Cast<ExperimentSituations>())
             {
-                if (GUILayout.Button(Enum.GetName(typeof(ExperimentSituations),situation)))
+                var style = new GUIStyle(GUI.skin.button);
+                if (situation == _model.Situation)
+                {
+                    style.normal.textColor = Color.yellow;
+                }
+                if (GUILayout.Button(Enum.GetName(typeof(ExperimentSituations),situation), style))
                 {
                     _model.Situation = situation;
                 }

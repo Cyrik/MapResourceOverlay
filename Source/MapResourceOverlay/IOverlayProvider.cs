@@ -87,6 +87,65 @@ namespace MapResourceOverlay
         }
     }
 
+    public class AnomalyMapProvider : OverlayProviderBase
+    {
+        private Dictionary<Coordinates, PQSCity> _pqsCities;
+
+        public override void Activate(CelestialBody body)
+        {
+            base.Activate(body);
+            CalculateAnomalies();
+        }
+
+        public override void BodyChanged(CelestialBody body)
+        {
+            base.BodyChanged(body);
+            CalculateAnomalies();
+        }
+
+        private void CalculateAnomalies()
+        {
+            _pqsCities = new Dictionary<Coordinates,PQSCity>();
+            PQSCity[] sites = _body.GetComponentsInChildren<PQSCity>(true);
+            foreach (var pqsCity in sites)
+            {
+                _pqsCities[new Coordinates(_body.GetLatitude(pqsCity.transform.position),
+                        _body.GetLongitude(pqsCity.transform.position))] = pqsCity;
+                
+            }
+            this.Log(_pqsCities.Aggregate("",(x,y) => x +"    "+ y.Value.name +" lat: "+y.Key.Latitude+" long: "+y.Key.Longitude));
+        }
+
+        public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright,
+            double cutoff)
+        {
+            var anoms = _pqsCities.Keys.Where(x => x.Distance(new Coordinates(latitude, Utilities.ClampDegrees(longitude))) < 2).ToList();
+            if (anoms.Count > 0)
+            {
+                return new Color32(0,255,255,255);
+            }
+            return new Color32(0,0,0,0);
+        }
+
+        public override OverlayTooltip TooltipContent(double latitude, double longitude, CelestialBody body)
+        {
+            var anoms = _pqsCities.Keys.Where(x => x.Distance(new Coordinates(latitude, Utilities.ClampDegrees(longitude))) < 2).ToList();
+            if (anoms.Count > 0)
+            {
+                var anom = _pqsCities[anoms.First()];
+                return new OverlayTooltip(anom.name,new GUIContent(""));
+            }
+            return base.TooltipContent(latitude, longitude, body);
+        }
+
+
+        public override string GuiName
+        {
+            get { return "Anomaly Map"; }
+        }
+    }
+
+
     public class OverlayTooltip
     {
         public OverlayTooltip(string title, GUIContent content, Vector2 size = new Vector2())
