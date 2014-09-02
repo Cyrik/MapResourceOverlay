@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Reflection.Emit;
+using LibNoise.Unity.Operator;
 using UnityEngine;
 using Object = System.Object;
 
@@ -12,6 +13,7 @@ namespace MapResourceOverlay
     public class ResourceOverlayProvider : OverlayProviderBase
     {
         private ResourceConfig _activeResource;
+        private double _displayMax;
 
         private delegate Object GetResourceAvailabilityByRealResourceNameDelegate(
             int bodyIndex, string resourceName, double lon, double lat);
@@ -19,6 +21,8 @@ namespace MapResourceOverlay
         private Func<object,object> _getAmount;
 
         private GetResourceAvailabilityByRealResourceNameDelegate _getResourceAvailabilityByRealResourceName;
+        private bool _logaritmic;
+        private bool _coloredScale;
 
         public ResourceConfig ActiveResource
         {
@@ -26,8 +30,37 @@ namespace MapResourceOverlay
             set
             {
                 _activeResource = value;
+                CalculateBase();
                 RequiresRedraw();
             }
+        }
+
+        public override void Activate(CelestialBody body)
+        {
+            base.Activate(body);
+            CalculateBase();
+            RequiresRedraw();
+        }
+
+        private void CalculateBase()
+        {
+            _displayMax = 0;
+            double avg = 0;
+            for (int lat = 0; lat < 180; lat++)
+            {
+                for (int lon = 0; lon < 360; lon++)
+                {
+                    var amount = (double)_getAmount(_getResourceAvailabilityByRealResourceName(_body.flightGlobalsIndex,
+                        ActiveResource.Resource.ResourceName, lon, lat));
+                    if (amount > _displayMax)
+                    {
+                        _displayMax = amount;
+                    }
+                    avg += amount;
+                }
+            }
+            _displayMax *= 1000000;
+            avg = avg/(180*360);
         }
 
         public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat,
@@ -40,10 +73,23 @@ namespace MapResourceOverlay
             }
             var avail = _getResourceAvailabilityByRealResourceName(body.flightGlobalsIndex,
                 ActiveResource.Resource.ResourceName, latitude, longitude);
-            var amount = (double)_getAmount(avail);
-            amount = amount*1000000;
+            var amount = (double)_getAmount(avail) * 1000000;
             if (amount > cutoff)
             {
+                if (Logaritmic)
+                {
+                    amount = ((Math.Log(amount, 2) - (Math.Log(cutoff, 2))) * 255) / ((Math.Log(_displayMax, 2) - (Math.Log(cutoff, 2))));
+                }
+                else if (_coloredScale)
+                {
+                    var color = ScanSatWrapper.heightToColor((float) amount, cutoff, (float) _displayMax);
+                    color.a = ActiveResource.HighColor.a;
+                    return color;
+                }
+                else
+                {
+                    amount =((amount - cutoff) * 255) / (_displayMax - cutoff);
+                }
                 amount = Mathf.Clamp((float) amount, 0f, 255f);
                 if (!bright)
                 {
@@ -55,10 +101,23 @@ namespace MapResourceOverlay
                 }
                 else
                 {
-                    return new Color32(255, Convert.ToByte(amount), Convert.ToByte(amount), 150);
+                    return new Color32(155, Convert.ToByte(amount), Convert.ToByte(amount), 150);
                 }
             }
             return ActiveResource.LowColor;
+        }
+
+        public bool Logaritmic
+        {
+            get { return _logaritmic; }
+            set
+            {
+                if (_logaritmic!= value)
+                {
+                    _logaritmic = value;
+                    RequiresRedraw();
+                }
+            }
         }
 
         public override OverlayTooltip TooltipContent(double latitude, double longitude, CelestialBody body)
@@ -81,7 +140,7 @@ namespace MapResourceOverlay
 
         public List<ResourceConfig> ColorConfigs { get; set; }
 
-        public ResourceOverlayProvider()
+        private void LoadFailsafe()
         {
             var config = new ResourceConfig
             {
@@ -113,12 +172,20 @@ namespace MapResourceOverlay
                 LowColor = new Color32(0, 0, 0, 0),
                 HighColor = new Color32(255, 0, 255, 200)
             };
-            ColorConfigs = new List<ResourceConfig> {config, config2, config3, config4, config5};
+            ColorConfigs = new List<ResourceConfig> { config, config2, config3, config4, config5 };
             ActiveResource = config;
         }
 
         public override void Load(ConfigNode node)
         {
+            try
+            {
+                InitiateOrs();
+            }
+            catch (Exception e)
+            {
+                this.Log("Couldnt find ORS" + e);
+            }
             try
             {
                 if (node.HasNode("ResourceOverlay"))
@@ -135,15 +202,8 @@ namespace MapResourceOverlay
             }
             catch (Exception e)
             {
-                this.Log("Could not load config, using default" + e);
-            }
-            try
-            {
-                InitiateOrs();
-            }
-            catch (Exception e)
-            {
-                this.Log("Couldnt find ORS" + e);
+                this.Log("Could not load config, using default, because " + e);
+                LoadFailsafe();
             }
         }
 
@@ -199,6 +259,38 @@ namespace MapResourceOverlay
                 Expression.Convert(methodCall, typeof(object)),
                 instance
                 ).Compile();
+        }
+
+        public override void DrawGui(MapOverlayGui gui)
+        {
+            base.DrawGui(gui);
+            GUILayout.BeginVertical();
+            Logaritmic = GUILayout.Toggle(Logaritmic, "Logarithmic Scale");
+            ColoredScale = GUILayout.Toggle(ColoredScale, "Colored Scale");
+            GUILayout.Space(15);
+            foreach (var res in ColorConfigs)
+            {
+                if (GUILayout.Button(res.Resource.ResourceName))
+                {
+                    ActiveResource = res;
+                }
+            }
+            GUILayout.EndVertical();
+        }
+
+        public bool ColoredScale
+        {
+            get { return _coloredScale; }
+            set
+            {
+                if (_coloredScale != value)
+                {
+                    _coloredScale = value;
+                    RequiresRedraw();
+                }
+                
+                
+            }
         }
     }
 }

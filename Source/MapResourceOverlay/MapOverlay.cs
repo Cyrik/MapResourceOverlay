@@ -131,7 +131,7 @@ namespace MapResourceOverlay
             GameEvents.onHideUI.Add(MakeInvisible);
             GameEvents.onShowUI.Add(MakeVisible);
             _overlayProviders = new List<IOverlayProvider>();
-
+            _targetBody = MapView.MapCamera.target.GetTargetBody();
         }
 
         public void ToggleGui()
@@ -241,6 +241,7 @@ namespace MapResourceOverlay
                 {
                     this.Log("Drawing at " + _targetBody.name + " because " +
                              (_targetBody != _body ? "body changed." : "something else changed."));
+                    OverlayProvider.BodyChanged(_targetBody);
                     _changed = false;
                     var dir = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
                     var radii = System.IO.File.ReadAllLines(dir + "/Assets/Radii.cfg");
@@ -496,18 +497,16 @@ namespace MapResourceOverlay
                     {
                         return Activator.CreateInstance(x) as IOverlayProvider;
                     }
-                    catch (Exception)
+                    catch (Exception e)
                     {
-                        this.Log("Couldnt instantiate: "+x.FullName);
+                        this.Log("Couldnt instantiate: "+x.FullName+"\n"+e);
                         return null;
                     }
                 })
                 .Where(x => x != null)
                 .ToList();
 
-            this.Log("from " + System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "/Base.cfg");
             LoadConfig(System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "/Base.cfg");
-            this.Log("from" + IOUtils.GetFilePathFor(GetType(), "MapResourceOverlay.cfg"));
             var globalSavedConfigFilename = IOUtils.GetFilePathFor(GetType(), "MapResourceOverlay.cfg");
             LoadConfig(globalSavedConfigFilename);
             _overlayProviders = _overlayProviders.Where(x => x.CanActivate()).ToList();
@@ -534,6 +533,7 @@ namespace MapResourceOverlay
                         {
                             try
                             {
+                                overlayProvider.BodyChanged(_targetBody);
                                 overlayProvider.Load(globalNode);
                             }
                             catch (Exception e)

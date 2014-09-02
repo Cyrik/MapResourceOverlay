@@ -107,7 +107,7 @@ namespace MapResourceOverlay
 
         public Color32 GetElevationColor32(CelestialBody body, double lon, double lat)
         {
-            return heightToColor((float)GetElevation(body, lon, lat), 0);
+            return heightToColor((float)GetElevation(body, lon, lat), 0, 7500);
         }
 
         public static double GetElevation(CelestialBody body, double lon, double lat)
@@ -118,10 +118,11 @@ namespace MapResourceOverlay
             Vector3d rad = new Vector3d(Math.Cos(rlat) * Math.Cos(rlon), Math.Sin(rlat), Math.Cos(rlat) * Math.Sin(rlon));
             return Math.Round(body.pqsController.GetSurfaceHeight(rad) - body.pqsController.radius, 1);
         }
-        public static Color heightToColor(float val, int scheme)
+        public static Color heightToColor(float val, double low, double high)
         {
             Color c = Color.black;
-            int sealevel = 0;
+            int sealevel = (int)low;
+            float max = (float) high;
             if (val <= sealevel)
             {
                 val = (Mathf.Clamp(val, -1500, sealevel) + 1500) / 1000f;
@@ -129,7 +130,7 @@ namespace MapResourceOverlay
             }
             else
             {
-                val = (heightGradient.Length - 2) * Mathf.Clamp(val, sealevel, (sealevel + 7500)) / (sealevel + 7500.0f); // 4*val / 7500
+                val = (heightGradient.Length - 2) * Mathf.Clamp(val, sealevel, (sealevel + max)) / (sealevel + max); // 4*val / 7500
                 c = Color.Lerp(heightGradient[(int)val], heightGradient[(int)val + 1], val - (int)val);
             }
             return c;

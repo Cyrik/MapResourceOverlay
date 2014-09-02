@@ -9,11 +9,13 @@ namespace MapResourceOverlay
     {
         private ScienceOverlayView _scienceOverlayView;
         private ExperimentSituations _situation;
-        private List<ScienceExperiment> _experiments; 
+        private List<ScienceExperiment> _experiments;
+        private readonly Dictionary<string, float> _biomeTagsToTotal;
+        private double _displayMax;
         public ScienceOverlayProvider()
         {
-            _experiments = new List<ScienceExperiment>();
             _situation = ExperimentSituations.FlyingHigh;
+            _biomeTagsToTotal = new Dictionary<string, float>();
         }
 
         public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright, double cutoff)
@@ -23,12 +25,12 @@ namespace MapResourceOverlay
                 return new Color32(0,0,0,0);
             }
             var biome = ScanSatWrapper.Instance.GetBiome(longitude, latitude, body);
-            var experiments = _experiments
-                        .GroupBy(x => x.BiomeIsRelevantWhile(_situation))
-                        .SelectMany(x => x.Select(y => new{exp = y, subj = ResearchAndDevelopment.GetExperimentSubject(y,_situation,body,x.Key ? biome.name:"")}))
-                        .Select(x => ResearchAndDevelopment.GetScienceValue(x.exp.dataScale * x.exp.baseValue,x.subj))
-                        .Sum();
-            return new Color32(Convert.ToByte(Mathf.Clamp(experiments,0,255)),0,0,150);
+            float value;
+            if (!_biomeTagsToTotal.TryGetValue(biome.name,out value))
+            {
+                this.Log(biome.name);
+            }
+            return new Color32(Convert.ToByte(Mathf.Clamp(value/(float)_displayMax*255, 0, 255)), 0, 0, 150);
         }
 
         public override OverlayTooltip TooltipContent(double latitude, double longitude, CelestialBody body)
@@ -37,7 +39,7 @@ namespace MapResourceOverlay
             var all = Enum.GetValues(typeof(ExperimentSituations)).Cast<ExperimentSituations>()
                 .Select(situation => ResearchAndDevelopment.GetExperimentIDs().Select(ResearchAndDevelopment.GetExperiment)
                     .Where(x => x.biomeMask != 0 && x.situationMask != 0)
-                    .Where(x => x.IsAvailableWhile(situation, body))
+                    .Where(x => x.IsAvailableWhileFixed(situation, body))
                     .GroupBy(x => x.BiomeIsRelevantWhile(situation))
                     .SelectMany(x => x.Select(y => new { exp = y, subj = ResearchAndDevelopment.GetExperimentSubject(y, situation, body, x.Key ? biome.name : "") }))
                     .Select(x => new { value = ResearchAndDevelopment.GetScienceValue(x.exp.dataScale * x.exp.baseValue, x.subj), exp = x })
@@ -47,7 +49,7 @@ namespace MapResourceOverlay
                 .Aggregate("", (str, x) => str + x + "\n");
             var main = ResearchAndDevelopment.GetExperimentIDs().Select(ResearchAndDevelopment.GetExperiment)
                     .Where(x => x.biomeMask != 0 && x.situationMask != 0)
-                    .Where(x => x.IsAvailableWhile(_situation, body))
+                    .Where(x => x.IsAvailableWhileFixed(_situation, body))
                     .GroupBy(x => x.BiomeIsRelevantWhile(_situation))
                     .SelectMany(x => x.Select(y => new { exp = y, subj = ResearchAndDevelopment.GetExperimentSubject(y, _situation, body, x.Key ? biome.name : "") }))
                     .Select(x => new { value = ResearchAndDevelopment.GetScienceValue(x.exp.dataScale * x.exp.baseValue, x.subj), exp = x })
@@ -69,6 +71,42 @@ namespace MapResourceOverlay
             {
                 _scienceOverlayView.SetVisible(false);
             }
+            SetExperiments(_situation);
+            CalculateBiomes();
+            RequiresRedraw();
+        }
+
+        public override void BodyChanged(CelestialBody body)
+        {
+            base.BodyChanged(body);
+            SetExperiments(_situation);
+            CalculateBiomes();
+            RequiresRedraw();
+        }
+
+        private void CalculateBiomes()
+        {
+            var biomeTags = _body.BiomeMap.Attributes.Select(x => x.name).ToList();
+            //this.Log(biomeTags.Aggregate((x,y) => x+"\n"+y));
+            _biomeTagsToTotal.Clear();
+            foreach (var biome in biomeTags)
+            {
+                _biomeTagsToTotal.Add(biome,CalculateTotalForBiome(biome));
+            }
+            if (biomeTags.Count == 0)
+            {
+                _biomeTagsToTotal.Add("",CalculateTotalForBiome(""));
+            }
+            _displayMax = _biomeTagsToTotal.Select(x => x.Value).Max();
+        }
+
+        private float CalculateTotalForBiome(string biome)
+        {
+            return _experiments
+                .GroupBy(x => x.BiomeIsRelevantWhile(_situation))
+                .SelectMany(x => x.Select(y => new { exp = y, subj = ResearchAndDevelopment.GetExperimentSubject(y, _situation, _body, x.Key ? biome : "") }))
+                .Select(x => ResearchAndDevelopment.GetScienceValue(x.exp.dataScale * x.exp.baseValue, x.subj))
+                .Sum();
         }
 
         public override string GuiName { get { return "Science Map"; }  }
@@ -80,6 +118,7 @@ namespace MapResourceOverlay
             {
                 _situation = value; 
                 SetExperiments(_situation);
+                CalculateBiomes();
                 RequiresRedraw();
             }
         }
@@ -92,11 +131,11 @@ namespace MapResourceOverlay
             }
         }
 
-        public void SetExperiments(ExperimentSituations situations)
+        private void SetExperiments(ExperimentSituations situations)
         {
             _experiments = ResearchAndDevelopment.GetExperimentIDs().Select(ResearchAndDevelopment.GetExperiment)
                 .Where(x => x.biomeMask != 0 && x.situationMask != 0)
-                .Where(x => x.IsAvailableWhile(situations, _body)).ToList();
+                .Where(x => x.IsAvailableWhileFixed(situations, _body)).ToList();
         }
 
     }

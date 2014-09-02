@@ -90,23 +90,7 @@ namespace MapResourceOverlay
                 }
             }
             GUILayout.Box("Active Type Specific:");
-            if (Model.OverlayProvider.GetType() == typeof(ResourceOverlayProvider))
-            {
-                var provider = (ResourceOverlayProvider)Model.OverlayProvider;
-                
-                foreach (var res in provider.ColorConfigs)
-                {
-                    if (GUILayout.Button(res.Resource.ResourceName))
-                    {
-                        provider.ActiveResource = res;
-                        Model.Reload();
-                    }
-                }
-            }
-            else
-            {
-                Model.OverlayProvider.DrawGui(this);
-            }
+            Model.OverlayProvider.DrawGui(this);
             GUILayout.EndVertical();
         }
     }

@@ -17,6 +17,7 @@ namespace MapResourceOverlay
         event EventHandler RedrawRequired;
         void DrawGui(MapOverlayGui gui);
         bool CanActivate();
+        void BodyChanged(CelestialBody body);
     }
 
     public abstract class OverlayProviderBase : IOverlayProvider
@@ -78,6 +79,11 @@ namespace MapResourceOverlay
         public virtual bool CanActivate()
         {
             return true;
+        }
+
+        public virtual void BodyChanged(CelestialBody body)
+        {
+            _body = body;
         }
     }
 

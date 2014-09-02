@@ -17,6 +17,13 @@ namespace MapResourceOverlay
             Debug.Log("[MRO]["+obj.GetType()+"][" + (new StackTrace()).GetFrame(1).GetMethod().Name + "] " + msg);
         }
 
+        public static bool IsAvailableWhileFixed(this ScienceExperiment experiment, ExperimentSituations situations, CelestialBody body)
+        {
+            return experiment.IsAvailableWhile(situations, body) &&
+                   !(experiment.experimentTitle == "Sample" &&
+                    !(situations == ExperimentSituations.SrfLanded || situations == ExperimentSituations.SrfSplashed));
+        }
+
         public static CelestialBody GetTargetBody(this MapObject target)
         {
             if (target.type == MapObject.MapObjectType.CELESTIALBODY)
