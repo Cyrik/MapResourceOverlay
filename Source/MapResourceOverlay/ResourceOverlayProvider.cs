@@ -75,11 +75,11 @@ namespace MapResourceOverlay
             var avail = _getResourceAvailabilityByRealResourceName(body.flightGlobalsIndex,
                 ActiveResource.Resource.ResourceName, latitude, longitude);
             var amount = (double)_getAmount(avail) * 1000000;
-            if (amount > cutoff)
+            if (amount > ActiveResource.Cutoff)
             {
                 if (Exponential)
                 {
-                    amount = ((Math.Pow(amount, 2) - (Math.Pow(cutoff, 2))) *255) / ((Math.Pow(_displayMax, 2) - (Math.Pow(cutoff, 2))));
+                    amount = ((Math.Pow(amount, 2) - (Math.Pow(ActiveResource.Cutoff, 2))) * 255) / ((Math.Pow(_displayMax, 2) - (Math.Pow(ActiveResource.Cutoff, 2))));
                     if (ColoredScale)
                     {
                         var color = ScanSatWrapper.heightToColor((float)amount, 0, 255);
@@ -89,11 +89,11 @@ namespace MapResourceOverlay
                 }
                 else if (Logaritmic)
                 {
-                    if (cutoff < 1)
+                    if (ActiveResource.Cutoff < 1)
                     {
-                        cutoff = 1;
+                        ActiveResource.Cutoff = 1;
                     }
-                    amount = ((Math.Log(amount, 2) - (Math.Log(cutoff, 2)))*255) / ((Math.Log(_displayMax, 2) - (Math.Log(cutoff, 2))));
+                    amount = ((Math.Log(amount, 2) - (Math.Log(ActiveResource.Cutoff, 2))) * 255) / ((Math.Log(_displayMax, 2) - (Math.Log(ActiveResource.Cutoff, 2))));
                     if (ColoredScale)
                     {
                         var color = ScanSatWrapper.heightToColor((float)amount*255, 0, 255f);
@@ -105,11 +105,11 @@ namespace MapResourceOverlay
                 {
                     if (ColoredScale)
                     {
-                        var color = ScanSatWrapper.heightToColor((float)amount, cutoff, (float)_displayMax);
+                        var color = ScanSatWrapper.heightToColor((float)amount, ActiveResource.Cutoff, (float)_displayMax);
                         color.a = ActiveResource.HighColor.a;
                         return color;
                     }
-                    amount =((amount - cutoff) * 255) / (_displayMax - cutoff);
+                    amount = ((amount - ActiveResource.Cutoff) * 255) / (_displayMax - ActiveResource.Cutoff);
                 }
                 amount = Mathf.Clamp((float) amount, 0f, 255f);
                 if (!bright)
@@ -289,24 +289,11 @@ namespace MapResourceOverlay
         public override void DrawGui(MapOverlayGui gui)
         {
             base.DrawGui(gui);
-            GUILayout.BeginVertical();
-            Logaritmic = GUILayout.Toggle(Logaritmic, "Logarithmic Scale");
-            Exponential = GUILayout.Toggle(Exponential, "Exponential Scale");
-            ColoredScale = GUILayout.Toggle(ColoredScale, "Colored Scale");
-            GUILayout.Space(15);
-            foreach (var res in ColorConfigs)
+            if (GUILayout.Button("Resource Options"))
             {
-                var style = new GUIStyle(GUI.skin.button);
-                if (res == ActiveResource)
-                {
-                    style.normal.textColor = Color.yellow;
-                }
-                if (GUILayout.Button(res.Resource.ResourceName,style))
-                {
-                    ActiveResource = res;
-                }
+                new ResourceOverlayView(this);
             }
-            GUILayout.EndVertical();
+            
         }
 
         public bool Exponential
@@ -341,6 +328,58 @@ namespace MapResourceOverlay
                 
                 
             }
+        }
+    }
+
+    public class ResourceOverlayView : Window<ResourceOverlay>
+    {
+        private readonly ResourceOverlayProvider _model;
+
+        public ResourceOverlayView(ResourceOverlayProvider model) : base("Resource Overlay Options", 300, 400)
+        {
+            _model = model;
+            SetVisible(true);
+        }
+
+        protected override void DrawWindowContents(int windowId)
+        {
+            GUILayout.BeginVertical();
+            _model.Logaritmic = GUILayout.Toggle(_model.Logaritmic, "Logarithmic Scale");
+            _model.Exponential = GUILayout.Toggle(_model.Exponential, "Exponential Scale");
+            _model.ColoredScale = GUILayout.Toggle(_model.ColoredScale, "Colored Scale");
+
+            GUILayout.Space(15);
+            foreach (var res in _model.ColorConfigs)
+            {
+                var style = new GUIStyle(GUI.skin.button);
+                if (res == _model.ActiveResource)
+                {
+                    style.normal.textColor = Color.yellow;
+                }
+                if (GUILayout.Button(res.Resource.ResourceName, style))
+                {
+                    _model.ActiveResource = res;
+                }
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("low Cuttoff ppm: ");
+                int temp;
+                var cutoff = GUILayout.TextField(res.Cutoff.ToString());
+                GUILayout.EndHorizontal();
+                bool changed = cutoff != res.Cutoff.ToString() && res == _model.ActiveResource;
+                if (Int32.TryParse(cutoff, out temp))
+                {
+                    res.Cutoff = temp;
+                }
+                else if (cutoff == "")
+                {
+                    res.Cutoff = 0;
+                }
+                if (changed)
+                {
+                    _model.ActiveResource = res;
+                }
+            }
+            GUILayout.EndVertical();
         }
     }
 }

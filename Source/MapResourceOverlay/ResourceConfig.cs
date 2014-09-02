@@ -9,13 +9,16 @@ namespace MapResourceOverlay
         public Resource Resource { get; set; }
         public Color32 LowColor { get; set; }
         public Color32 HighColor { get; set; }
+        public double Cutoff { get; set; }
+
         public static ResourceConfig Load(ConfigNode configNode)
         {
             var res = new ResourceConfig
             {
                 Resource = Resource.DeserializeResource(configNode.GetValue("Resource")),
                 LowColor = StringToColor(configNode.GetValue("LowColor")),
-                HighColor = StringToColor(configNode.GetValue("HighColor"))
+                HighColor = StringToColor(configNode.GetValue("HighColor")),
+                Cutoff = Double.Parse(configNode.GetValue("Cutoff"))
             };
             return res;
         }
@@ -34,6 +37,7 @@ namespace MapResourceOverlay
         public void Save(ConfigNode node)
         {
             var colorConfigNode = node.AddNode(Resource.ResourceName);
+            colorConfigNode.AddValue("Cutoff", Cutoff);
             colorConfigNode.AddValue("Resource", Resource.Serialize());
             colorConfigNode.AddValue("LowColor", ColorToString(LowColor));
             colorConfigNode.AddValue("HighColor", ColorToString(HighColor));

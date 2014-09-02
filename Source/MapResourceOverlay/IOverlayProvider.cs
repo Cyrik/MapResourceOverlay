@@ -113,7 +113,7 @@ namespace MapResourceOverlay
                         _body.GetLongitude(pqsCity.transform.position))] = pqsCity;
                 
             }
-            this.Log(_pqsCities.Aggregate("",(x,y) => x +"    "+ y.Value.name +" lat: "+y.Key.Latitude+" long: "+y.Key.Longitude));
+            //this.Log(_pqsCities.Aggregate("",(x,y) => x +"    "+ y.Value.name +" lat: "+y.Key.Latitude+" long: "+y.Key.Longitude));
         }
 
         public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright,
