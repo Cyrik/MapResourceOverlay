@@ -18,7 +18,7 @@ namespace MapResourceOverlay
             _biomeTagsToTotal = new Dictionary<string, float>();
         }
 
-        public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright, double cutoff)
+        public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright)
         {
             if (useScansat && ScanSatWrapper.Instance.Active() && !IsCoveredAt(latitude,longitude,body))
             {

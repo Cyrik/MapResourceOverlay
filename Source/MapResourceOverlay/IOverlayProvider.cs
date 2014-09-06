@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using UnityEngine;
 
@@ -8,7 +10,7 @@ namespace MapResourceOverlay
 {
     public interface IOverlayProvider :IConfigNode
     {
-        Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright, double cutoff);
+        Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright);
         OverlayTooltip TooltipContent(double latitude, double longitude, CelestialBody body);
         bool IsCoveredAt(double latitude, double longitude, CelestialBody body);
         string GuiName { get; }
@@ -20,6 +22,19 @@ namespace MapResourceOverlay
         void BodyChanged(CelestialBody body);
     }
 
+    public class OverlayTooltip
+    {
+        public OverlayTooltip(string title, GUIContent content, Vector2 size = new Vector2())
+        {
+            Title = title;
+            Content = content;
+            Size = size;
+        }
+
+        public string Title { get; set; }
+        public GUIContent Content { get; set; }
+        public Vector2 Size { get; set; }
+    }
     public abstract class OverlayProviderBase : IOverlayProvider
     {
         protected CelestialBody _body;
@@ -34,8 +49,7 @@ namespace MapResourceOverlay
             
         }
 
-        public virtual Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright,
-            double cutoff)
+        public virtual Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright)
         {
             return new Color32();
         }
@@ -87,6 +101,163 @@ namespace MapResourceOverlay
         }
     }
 
+    class SlopeMapProvider : OverlayProviderBase
+    {
+        private double _max = 800;
+        private double _accuracy = 0.5;
+        private double[,] _arr;
+
+        public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright)
+        {
+            var height = ScanSatWrapper.GetElevation(body, longitude, latitude);
+            var list = new List<double>
+            {
+                ScanSatWrapper.GetElevation(body, longitude, latitude + _accuracy),
+                ScanSatWrapper.GetElevation(body, longitude, latitude - _accuracy),
+                ScanSatWrapper.GetElevation(body, longitude - _accuracy, latitude),
+                ScanSatWrapper.GetElevation(body, longitude + _accuracy, latitude)
+            };
+            var slope = list.Select(x => height - x).Max();
+
+            ////TODO: switch over
+            //var height = _arr[ArrayLatitudeIndex(latitude), ArrayLongitudeIndex(longitude)];
+            //var list = new List<double>
+            //{
+            //    _arr[ArrayLatitudeIndex(latitude),ArrayLongitudeIndex(longitude+_accuracy)],
+            //    _arr[ArrayLatitudeIndex(latitude),ArrayLongitudeIndex(longitude-_accuracy)],
+            //    _arr[ArrayLatitudeIndex(latitude+_accuracy),ArrayLongitudeIndex(longitude )],
+            //    _arr[ArrayLatitudeIndex(latitude-_accuracy),ArrayLongitudeIndex(longitude)],
+
+            //    _arr[ArrayLatitudeIndex(latitude+0.5*Math.PI*_accuracy),ArrayLongitudeIndex(longitude+0.5*Math.PI*_accuracy)],
+            //    _arr[ArrayLatitudeIndex(latitude-0.5*Math.PI*_accuracy),ArrayLongitudeIndex(longitude-0.5*Math.PI*_accuracy)],
+            //    _arr[ArrayLatitudeIndex(latitude+0.5*Math.PI*_accuracy),ArrayLongitudeIndex(longitude-0.5*Math.PI*_accuracy)],
+            //    _arr[ArrayLatitudeIndex(latitude-0.5*Math.PI*_accuracy),ArrayLongitudeIndex(longitude+0.5*Math.PI*_accuracy)]
+            //};
+            //var slope = list.Select(x => height -x ).Max();
+            var byteColor = Convert.ToByte(Mathf.Clamp((float) slope*255/(float)_max,    0, 255));
+            return new Color32(byteColor,byteColor,byteColor,255);
+        }
+
+        private int ArrayIndex(double latitude, double longitude)
+        {
+            latitude =Math.Abs(latitude -90);
+            longitude += 180;
+            return (int) (Math.Round(longitude*10, 1) + Math.Round(latitude*10, 1)*(3600 + 1) + 1);
+        }
+
+        private int ArrayLongitudeIndex(double longitude)
+        {
+            return (int)Math.Abs((longitude*10)%3600);
+        }
+
+        private int ArrayLatitudeIndex(double latitude)
+        {
+            return (int) Math.Abs((Math.Abs(latitude - 90)*10)%1800);
+        }
+
+        public override OverlayTooltip TooltipContent(double latitude, double longitude, CelestialBody body)
+        {
+            var height = ScanSatWrapper.GetElevation(body, longitude, latitude);
+            var list = new List<double>
+            {
+                ScanSatWrapper.GetElevation(body, longitude, latitude + _accuracy),
+                ScanSatWrapper.GetElevation(body, longitude, latitude - _accuracy),
+                ScanSatWrapper.GetElevation(body, longitude - _accuracy, latitude),
+                ScanSatWrapper.GetElevation(body, longitude + _accuracy, latitude)
+            };
+            var slope = list.Select(x => height - x).Max();
+
+            ////TODO: switch over
+            //this.Log("lat: " + latitude + " lon: " + longitude + " lat index: " + ArrayLatitudeIndex(latitude) + " long index: " + ArrayLongitudeIndex(longitude));
+            //var height = _arr[ArrayLatitudeIndex(latitude), ArrayLongitudeIndex(longitude)];
+            //this.Log("height: " + height);
+            //var list = new List<double>
+            //{
+            //    _arr[ArrayLatitudeIndex(latitude),ArrayLongitudeIndex(longitude+_accuracy)],
+            //    _arr[ArrayLatitudeIndex(latitude),ArrayLongitudeIndex(longitude-_accuracy)],
+            //    _arr[ArrayLatitudeIndex(latitude+_accuracy),ArrayLongitudeIndex(longitude )],
+            //    _arr[ArrayLatitudeIndex(latitude-_accuracy),ArrayLongitudeIndex(longitude)],
+
+            //    _arr[ArrayLatitudeIndex(latitude+0.5*Math.PI*_accuracy),ArrayLongitudeIndex(longitude+0.5*Math.PI*_accuracy)],
+            //    _arr[ArrayLatitudeIndex(latitude-0.5*Math.PI*_accuracy),ArrayLongitudeIndex(longitude-0.5*Math.PI*_accuracy)],
+            //    _arr[ArrayLatitudeIndex(latitude+0.5*Math.PI*_accuracy),ArrayLongitudeIndex(longitude-0.5*Math.PI*_accuracy)],
+            //    _arr[ArrayLatitudeIndex(latitude-0.5*Math.PI*_accuracy),ArrayLongitudeIndex(longitude+0.5*Math.PI*_accuracy)]
+            //};
+            //var slope = list.Select(x => height - x).Max();
+            //this.Log("index: " + ArrayIndex(latitude, longitude) +" slope: "+slope+ "height :" + height + " others: " + list.Aggregate("", (x, y) => x + "\n height: " + y));
+
+            
+            return new OverlayTooltip("",new GUIContent(slope.ToString()));
+        }
+
+        public override void Activate(CelestialBody body)
+        {
+            ////TODO: enable this
+            //var dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            //if (!File.Exists(dir+"/testfile.txt"))
+            //{
+            //    using (var stream = new BinaryWriter(File.Open(dir + "/testfile.txt", FileMode.OpenOrCreate)))
+            //    {
+            //        for (int lat = 0; lat < 1800; lat++)
+            //        {
+            //            for (int lon = 0; lon < 3601; lon++)
+            //            {
+            //                stream.Write(ScanSatWrapper.GetElevation(body, lon/10.0, 90.0-lat/10.0));
+            //            }
+            //        }
+            //    }
+            //}
+
+            //using (var stream = new BinaryReader(File.Open(dir + "/testfile.txt", FileMode.Open)))
+            //{
+            //    _arr = new double[1800,3601];
+
+            //    for (int i = 0; i < 1800; i++)
+            //    {
+            //        for (int lon = 0; lon < 3601; lon++)
+            //        {
+            //            _arr[i,lon] = stream.ReadDouble();
+            //        }
+            //    }
+            //}
+        }
+
+        public override string GuiName
+        {
+            get { return "Slope Map"; }
+        }
+
+        public override void DrawGui(MapOverlayGui gui)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Accuracy");
+            double temp;
+            var cutoff = GUILayout.TextField(_accuracy.ToString());
+            GUILayout.EndHorizontal();
+            if (Double.TryParse(cutoff, out temp))
+            {
+                _accuracy = temp;
+            }
+            else if (cutoff == "")
+            {
+                _accuracy = 0;
+            }
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Max slope");
+            double temp2;
+            var cutoff2 = GUILayout.TextField(_max.ToString());
+            GUILayout.EndHorizontal();
+            if (Double.TryParse(cutoff2, out temp2))
+            {
+                _max = temp2;
+            }
+            else if (cutoff == "")
+            {
+                _max = 0;
+            }
+        }
+    }
+
     public class AnomalyMapProvider : OverlayProviderBase
     {
         private Dictionary<Coordinates, PQSCity> _pqsCities;
@@ -116,8 +287,7 @@ namespace MapResourceOverlay
             //this.Log(_pqsCities.Aggregate("",(x,y) => x +"    "+ y.Value.name +" lat: "+y.Key.Latitude+" long: "+y.Key.Longitude));
         }
 
-        public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright,
-            double cutoff)
+        public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright)
         {
             var anoms = _pqsCities.Keys.Where(x => x.Distance(new Coordinates(latitude, Utilities.ClampDegrees(longitude))) < 2).ToList();
             if (anoms.Count > 0)
@@ -146,26 +316,12 @@ namespace MapResourceOverlay
     }
 
 
-    public class OverlayTooltip
-    {
-        public OverlayTooltip(string title, GUIContent content, Vector2 size = new Vector2())
-        {
-            Title = title;
-            Content = content;
-            Size = size;
-        }
-
-        public string Title { get; set; }
-        public GUIContent Content { get; set; }
-        public Vector2 Size { get; set; }
-    }
 
     class HeightmapProvider : OverlayProviderBase
     {
         public byte Alpha { get; set; }
 
-        public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat,
-            bool bright, double cutoff)
+        public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright)
         {
             if (useScansat && ScanSatWrapper.Instance.Active() && !IsCoveredAt(latitude, longitude, body))
             {
@@ -222,8 +378,7 @@ namespace MapResourceOverlay
     class BiomeOverlayProvider : OverlayProviderBase
     {
         public byte Alpha { get; set; }
-        public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat,
-            bool bright, double cutoff)
+        public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright)
         {
             if (useScansat && ScanSatWrapper.Instance.Active() && !IsCoveredAt(latitude, longitude, body))
             {

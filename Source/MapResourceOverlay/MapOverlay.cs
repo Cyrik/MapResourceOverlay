@@ -473,7 +473,7 @@ namespace MapResourceOverlay
 
         private Color32 CalculateColor32At(CelestialBody body, double latitude, double longitude)
         {
-            return OverlayProvider.CalculateColor32(latitude, longitude, body, useScansat, bright, cutoff);
+            return OverlayProvider.CalculateColor32(latitude, longitude, body, useScansat, bright);
         }
 
         private Color32 CalculateColor32ForResourceAt(CelestialBody body, double latitude, double longitude)

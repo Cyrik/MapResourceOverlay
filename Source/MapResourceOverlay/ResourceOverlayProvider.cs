@@ -64,8 +64,7 @@ namespace MapResourceOverlay
             avg = avg/(180*360);
         }
 
-        public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat,
-            bool bright, double cutoff)
+        public override Color32 CalculateColor32(double latitude, double longitude, CelestialBody body, bool useScansat, bool bright)
         {
             var scanSat = ScanSatWrapper.Instance;
             if (useScansat && scanSat.Active() && !scanSat.IsCovered(longitude, latitude, body, ActiveResource.Resource))
