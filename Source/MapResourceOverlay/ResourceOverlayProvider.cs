@@ -330,7 +330,7 @@ namespace MapResourceOverlay
         }
     }
 
-    public class ResourceOverlayView : Window<ResourceOverlay>
+    public class ResourceOverlayView : Window<ResourceOverlayView>
     {
         private readonly ResourceOverlayProvider _model;
 
