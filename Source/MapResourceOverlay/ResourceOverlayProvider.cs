@@ -252,7 +252,7 @@ namespace MapResourceOverlay
         {
             var orsPlanetaryResoureMapDataType = AssemblyLoader.loadedAssemblies.SelectMany(
                 x => x.assembly.GetExportedTypes())
-                .FirstOrDefault(x => x.FullName == "OpenResourceSystem.ORSPlanetaryResourceMapData");
+				.FirstOrDefault(x => x.FullName == "ORSX.ORSX_PlanetaryResourceMapData");
             if (orsPlanetaryResoureMapDataType != null)
             {
                 var method = orsPlanetaryResoureMapDataType.GetMethod("getResourceAvailabilityByRealResourceName",
